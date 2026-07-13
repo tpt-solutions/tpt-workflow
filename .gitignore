@@ -1,0 +1,11 @@
+/target/
+**/target/
+*.exe
+*.pdb
+
+# Editors / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+.kilo/

@@ -1,0 +1,17 @@
+The Stateful Workflow Engine: tpt-workflow
+Tagline: Orchestrating the complex, durable logic of your ecosystem.
+Purpose
+While tpt-synapse handles the fast, instantaneous firing of events, enterprise ecosystems require long-running, stateful business processes. A citizen applying for a permit, a multi-stage supply chain route, or a healthcare patient intake process can take days or weeks. tpt-workflow is your durable execution and Business Process Management (BPM) engine. It takes the disparate microservices of your ecosystem and orchestrates them into cohesive, unbreakable workflows that survive server crashes, pause for human approval, and execute complex logic without creating spaghetti code.
+Core Architecture
+Durable Execution: Workflows are written as standard code (Rust/TypeScript). The engine automatically persists the state of the workflow at every step. If a server crashes, tpt-workflow replays the workflow from the exact point of failure, ensuring no state is lost.
+Visual Workflow Builder: A drag-and-drop interface for non-developers (e.g., government clerks or hospital admins) to design, test, and modify business processes visually without touching code.
+Sandboxed Workers: Isolated environments that execute the actual workflow tasks, ensuring that a memory leak or bug in one workflow doesn't crash the entire engine.
+Tech Stack
+Workflow Engine Core: Rust (utilizing deterministic replay and event sourcing, inspired by Temporal.io's architecture).
+Sandboxed Execution: WebAssembly (WASM) (using Wasmtime or Wasmer) to safely run user-defined workflow logic and third-party plugins in strictly isolated memory spaces.
+Communication: gRPC & Protobuf for high-performance, strictly typed, low-latency communication between the tpt-workflow engine and the worker nodes.
+Visual Builder UI: tpt-appfront (rendering a complex, interactive, infinite-canvas node graph for designing workflows, running natively on desktop and web).
+Ecosystem Integration
+Uses tpt-keystone-db as the durable state store (event-sourcing the workflow history) and for complex querying of historical workflow data.
+Uses tpt-synapse to dispatch tasks to workers and listen for asynchronous task completions.
+Uses tpt-identity to manage step-level permissions (e.g., "Only a Level 3 Manager with the 'Finance' attribute can approve this specific workflow step").
