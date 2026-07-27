@@ -1,0 +1,71 @@
+syntax = "proto3";
+
+package tpt.workflow.v1;
+
+import "google/protobuf/timestamp.proto";
+import "google/protobuf/struct.proto";
+import "google/protobuf/duration.proto";
+import "tpt/workflow/v1/workflow.proto";
+import "tpt/workflow/v1/task.proto";
+import "tpt/workflow/v1/worker.proto";
+
+// Engine service for workflow management
+
+service WorkflowEngineService {
+  // Workflow Definition Management
+  rpc CreateWorkflowDefinition(CreateWorkflowDefinitionRequest) returns (CreateWorkflowDefinitionResponse);
+  rpc GetWorkflowDefinition(GetWorkflowDefinitionRequest) returns (GetWorkflowDefinitionResponse);
+  rpc ListWorkflowDefinitions(ListWorkflowDefinitionsRequest) returns (ListWorkflowDefinitionsResponse);
+  rpc UpdateWorkflowDefinition(UpdateWorkflowDefinitionRequest) returns (UpdateWorkflowDefinitionResponse);
+  rpc DeleteWorkflowDefinition(DeleteWorkflowDefinitionRequest) returns (DeleteWorkflowDefinitionResponse);
+
+  // Workflow Execution Management
+  rpc StartWorkflowExecution(StartWorkflowExecutionRequest) returns (StartWorkflowExecutionResponse);
+  rpc GetWorkflowExecution(GetWorkflowExecutionRequest) returns (GetWorkflowExecutionResponse);
+  rpc ListWorkflowExecutions(ListWorkflowExecutionsRequest) returns (ListWorkflowExecutionsResponse);
+  rpc CancelWorkflowExecution(CancelWorkflowExecutionRequest) returns (CancelWorkflowExecutionResponse);
+  rpc TerminateWorkflowExecution(TerminateWorkflowExecutionRequest) returns (TerminateWorkflowExecutionResponse);
+  rpc SignalWorkflowExecution(SignalWorkflowExecutionRequest) returns (SignalWorkflowExecutionResponse);
+  rpc GetWorkflowExecutionHistory(GetWorkflowExecutionHistoryRequest) returns (GetWorkflowExecutionHistoryResponse);
+
+  // Task Queue Management
+  rpc CreateTaskQueue(CreateTaskQueueRequest) returns (CreateTaskQueueResponse);
+  rpc GetTaskQueue(GetTaskQueueRequest) returns (GetTaskQueueResponse);
+  rpc ListTaskQueues(ListTaskQueuesRequest) returns (ListTaskQueuesResponse);
+  rpc DeleteTaskQueue(DeleteTaskQueueRequest) returns (DeleteTaskQueueResponse);
+  rpc GetTaskQueueStats(GetTaskQueueStatsRequest) returns (GetTaskQueueStatsResponse);
+
+  // Worker Management
+  rpc RegisterWorker(WorkerRegisterRequest) returns (WorkerRegisterResponse);
+  rpc WorkerHeartbeat(WorkerHeartbeatRequest) returns (WorkerHeartbeatResponse);
+  rpc DeregisterWorker(WorkerDeregisterRequest) returns (WorkerDeregisterResponse);
+  rpc GetWorker(GetWorkerRequest) returns (GetWorkerResponse);
+  rpc ListWorkers(ListWorkersRequest) returns (ListWorkersResponse);
+  rpc PollTask(PollTaskRequest) returns (PollTaskResponse);
+
+  // Task Operations (for workers)
+  rpc CompleteTask(TaskCompleteRequest) returns (TaskCompleteResponse);
+  rpc HeartbeatTask(TaskHeartbeatRequest) returns (TaskHeartbeatResponse);
+  rpc CancelTask(TaskCancelRequest) returns (TaskCancelResponse);
+}
+
+// UpdateWorkflowDefinitionRequest represents a request to update a workflow definition
+message UpdateWorkflowDefinitionRequest {
+  WorkflowDefinition definition = 1;
+}
+
+message UpdateWorkflowDefinitionResponse {
+  WorkflowDefinition definition = 1;
+}
+
+message DeleteWorkflowDefinitionRequest {
+  string id = 1;
+  string version = 2;  // Optional, delete all versions if not specified
+}
+
+message DeleteWorkflowDefinitionResponse {
+  bool success = 1;
+}
+
+
+

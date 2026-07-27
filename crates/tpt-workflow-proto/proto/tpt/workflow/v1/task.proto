@@ -1,0 +1,103 @@
+syntax = "proto3";
+
+package tpt.workflow.v1;
+
+import "google/protobuf/timestamp.proto";
+import "google/protobuf/struct.proto";
+import "tpt/workflow/v1/workflow.proto";
+
+// Task represents a unit of work to be executed by a worker
+message Task {
+  string task_id = 1;
+  string task_type = 2;
+  string task_queue = 3;
+  google.protobuf.Struct input = 4;
+  google.protobuf.Struct search_attributes = 5;
+  google.protobuf.Struct metadata = 6;
+  string workflow_id = 7;
+  string step_id = 8;
+  int64 attempt = 9;
+  google.protobuf.Timestamp scheduled_at = 10;
+  google.protobuf.Timestamp started_at = 11;
+  TimeoutPolicy timeout_policy = 12;
+  RetryPolicy retry_policy = 13;
+  string task_token = 14;  // Opaque token for completion
+  PermissionRequirement permission = 15;
+}
+
+// TaskResult represents the result of a task execution
+message TaskResult {
+  string task_id = 1;
+  string task_token = 2;
+  TaskResultStatus status = 3;
+  google.protobuf.Struct output = 4;
+  google.protobuf.Struct search_attributes = 5;
+  google.protobuf.Struct metadata = 6;
+  string error_message = 7;
+  string error_type = 8;
+  google.protobuf.Timestamp completed_at = 9;
+  int64 attempt = 10;
+}
+
+enum TaskResultStatus {
+  TASK_RESULT_STATUS_UNSPECIFIED = 0;
+  TASK_RESULT_STATUS_COMPLETED = 1;
+  TASK_RESULT_STATUS_FAILED = 2;
+  TASK_RESULT_STATUS_TIMED_OUT = 3;
+  TASK_RESULT_STATUS_CANCELLED = 4;
+}
+
+// TaskScheduleRequest represents a request to schedule a task
+message TaskScheduleRequest {
+  string task_queue = 1;
+  string task_type = 2;
+  google.protobuf.Struct input = 3;
+  google.protobuf.Struct search_attributes = 4;
+  google.protobuf.Struct metadata = 5;
+  string workflow_id = 6;
+  string step_id = 7;
+  TimeoutPolicy timeout_policy = 8;
+  RetryPolicy retry_policy = 9;
+  PermissionRequirement permission = 10;
+  string task_token = 11;  // Optional, generated if not provided
+}
+
+message TaskScheduleResponse {
+  Task task = 1;
+}
+
+// TaskCompleteRequest represents a request to complete a task
+message TaskCompleteRequest {
+  string task_token = 1;
+  TaskResult result = 2;
+}
+
+message TaskCompleteResponse {
+  bool accepted = 1;
+  string error_message = 2;
+}
+
+// TaskHeartbeatRequest represents a heartbeat from a worker
+message TaskHeartbeatRequest {
+  string task_token = 1;
+  google.protobuf.Struct progress = 2;
+}
+
+message TaskHeartbeatResponse {
+  bool should_cancel = 1;
+  google.protobuf.Struct details = 2;
+}
+
+// TaskCancelRequest represents a request to cancel a task
+message TaskCancelRequest {
+  string task_token = 1;
+  string reason = 2;
+}
+
+message TaskCancelResponse {
+  bool cancelled = 1;
+  string error_message = 2;
+}
+
+
+

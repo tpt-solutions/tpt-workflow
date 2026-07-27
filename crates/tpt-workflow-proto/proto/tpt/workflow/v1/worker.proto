@@ -1,0 +1,190 @@
+syntax = "proto3";
+
+package tpt.workflow.v1;
+
+import "google/protobuf/timestamp.proto";
+import "google/protobuf/struct.proto";
+import "google/protobuf/duration.proto";
+import "tpt/workflow/v1/task.proto";
+
+// Worker represents a worker node that can execute tasks
+message Worker {
+  string worker_id = 1;
+  string worker_type = 2;
+  repeated string task_queues = 3;
+  WorkerStatus status = 4;
+  google.protobuf.Timestamp registered_at = 5;
+  google.protobuf.Timestamp last_heartbeat = 6;
+  google.protobuf.Struct capabilities = 7;
+  google.protobuf.Struct metadata = 8;
+  int32 max_concurrent_tasks = 9;
+  int32 current_task_count = 10;
+}
+
+enum WorkerStatus {
+  WORKER_STATUS_UNSPECIFIED = 0;
+  WORKER_STATUS_HEALTHY = 1;
+  WORKER_STATUS_UNHEALTHY = 2;
+  WORKER_STATUS_DRAINING = 3;
+  WORKER_STATUS_OFFLINE = 4;
+}
+
+// WorkerRegisterRequest represents a worker registration request
+message WorkerRegisterRequest {
+  string worker_id = 1;  // Optional, generated if not provided
+  string worker_type = 2;
+  repeated string task_queues = 3;
+  google.protobuf.Struct capabilities = 4;
+  google.protobuf.Struct metadata = 5;
+  int32 max_concurrent_tasks = 6;
+}
+
+message WorkerRegisterResponse {
+  Worker worker = 1;
+}
+
+// WorkerHeartbeatRequest represents a heartbeat from a worker
+message WorkerHeartbeatRequest {
+  string worker_id = 1;
+  WorkerStatus status = 2;
+  int32 current_task_count = 3;
+  google.protobuf.Struct metrics = 4;
+}
+
+message WorkerHeartbeatResponse {
+  bool should_drain = 1;
+  repeated string assigned_task_queues = 2;
+  google.protobuf.Duration heartbeat_interval = 3;
+}
+
+// WorkerDeregisterRequest represents a worker deregistration request
+message WorkerDeregisterRequest {
+  string worker_id = 1;
+  bool graceful = 2;
+}
+
+message WorkerDeregisterResponse {
+  bool success = 1;
+}
+
+// GetWorkerRequest represents a request to get worker info
+message GetWorkerRequest {
+  string worker_id = 1;
+}
+
+message GetWorkerResponse {
+  Worker worker = 1;
+}
+
+// ListWorkersRequest represents a request to list workers
+message ListWorkersRequest {
+  int32 page_size = 1;
+  string page_token = 2;
+  string task_queue = 3;
+  WorkerStatus status = 4;
+}
+
+message ListWorkersResponse {
+  repeated Worker workers = 1;
+  string next_page_token = 2;
+}
+
+// WorkerTaskAssignment represents a task assigned to a worker
+message WorkerTaskAssignment {
+  string assignment_id = 1;
+  string worker_id = 2;
+  Task task = 3;
+  google.protobuf.Timestamp assigned_at = 4;
+  google.protobuf.Duration timeout = 5;
+}
+
+// PollTaskRequest represents a request to poll for tasks
+message PollTaskRequest {
+  string worker_id = 1;
+  repeated string task_queues = 2;
+  int32 max_tasks = 3;
+  google.protobuf.Duration long_poll_timeout = 4;
+}
+
+message PollTaskResponse {
+  repeated WorkerTaskAssignment tasks = 1;
+}
+
+// TaskQueue represents a task queue configuration
+message TaskQueue {
+  string name = 1;
+  string description = 2;
+  TaskQueueKind kind = 3;
+  google.protobuf.Timestamp created_at = 4;
+  google.protobuf.Timestamp updated_at = 5;
+  google.protobuf.Struct metadata = 6;
+}
+
+enum TaskQueueKind {
+  TASK_QUEUE_KIND_UNSPECIFIED = 0;
+  TASK_QUEUE_KIND_NORMAL = 1;
+  TASK_QUEUE_KIND_STICKY = 2;  // Sticky to a specific worker
+}
+
+message CreateTaskQueueRequest {
+  TaskQueue queue = 1;
+}
+
+message CreateTaskQueueResponse {
+  TaskQueue queue = 1;
+}
+
+message DeleteTaskQueueRequest {
+  string name = 1;
+}
+
+message DeleteTaskQueueResponse {
+  bool success = 1;
+}
+
+message GetTaskQueueRequest {
+  string name = 1;
+}
+
+message GetTaskQueueResponse {
+  TaskQueue queue = 1;
+}
+
+message ListTaskQueuesRequest {
+  int32 page_size = 1;
+  string page_token = 2;
+}
+
+message ListTaskQueuesResponse {
+  repeated TaskQueueInfo queues = 1;
+  string next_page_token = 2;
+}
+
+message TaskQueueInfo {
+  string name = 1;
+  string description = 2;
+  int64 pending_tasks = 3;
+  int64 running_tasks = 4;
+  google.protobuf.Timestamp created_at = 5;
+  google.protobuf.Timestamp updated_at = 6;
+}
+
+message TaskQueueStats {
+  string task_queue = 1;
+  int64 pending_tasks = 2;
+  int64 running_tasks = 3;
+  int64 completed_tasks = 4;
+  int64 failed_tasks = 5;
+  google.protobuf.Timestamp updated_at = 6;
+}
+
+message GetTaskQueueStatsRequest {
+  string task_queue = 1;
+}
+
+message GetTaskQueueStatsResponse {
+  TaskQueueStats stats = 1;
+}
+
+
+

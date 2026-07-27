@@ -1,0 +1,18 @@
+[package]
+name = "tpt-workflow-proto"
+version = "0.1.0"
+edition = "2021"
+description = "Protobuf definitions for tpt-workflow"
+publish = false
+
+[build-dependencies]
+prost-build = { workspace = true }
+
+[dependencies]
+prost = { workspace = true }
+prost-types = { workspace = true }
+prost-reflect = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+bytes = { workspace = true }

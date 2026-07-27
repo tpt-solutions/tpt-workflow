@@ -1,0 +1,288 @@
+syntax = "proto3";
+
+package tpt.workflow.v1;
+
+import "google/protobuf/timestamp.proto";
+import "google/protobuf/struct.proto";
+import "google/protobuf/duration.proto";
+
+// Workflow definition and execution models
+
+// WorkflowDefinition represents a complete workflow definition
+message WorkflowDefinition {
+  string id = 1;
+  string name = 2;
+  string version = 3;
+  string description = 4;
+  repeated StepDefinition steps = 5;
+  google.protobuf.Timestamp created_at = 6;
+  google.protobuf.Timestamp updated_at = 7;
+  google.protobuf.Struct metadata = 8;
+  google.protobuf.Struct search_attributes = 9;
+}
+
+// StepDefinition represents a single step in a workflow
+message StepDefinition {
+  string id = 1;
+  string name = 2;
+  string description = 3;
+  StepType type = 4;
+  string task_queue = 5;
+  string task_type = 6;
+  google.protobuf.Struct input = 7;
+  google.protobuf.Struct output = 8;
+  TimeoutPolicy timeout_policy = 9;
+  RetryPolicy retry_policy = 10;
+  PermissionRequirement permission = 11;
+  repeated string next_steps = 12;  // Next step IDs on success
+  repeated string error_steps = 13; // Next step IDs on error
+  google.protobuf.Struct metadata = 14;
+}
+
+enum StepType {
+  STEP_TYPE_UNSPECIFIED = 0;
+  STEP_TYPE_TASK = 1;          // Execute a task
+  STEP_TYPE_DECISION = 2;      // Decision/branch point
+  STEP_TYPE_PARALLEL = 3;      // Parallel execution
+  STEP_TYPE_SEQUENCE = 4;      // Sequential execution
+  STEP_TYPE_WAIT = 5;          // Wait for signal/timer
+  STEP_TYPE_SIGNAL = 6;        // Send signal
+  STEP_TYPE_CHILD_WORKFLOW = 7; // Start child workflow
+  STEP_TYPE_CONTINUE_AS_NEW = 8; // Continue as new workflow
+}
+
+// WorkflowExecution represents a running or completed workflow execution
+message WorkflowExecution {
+  string workflow_id = 1;
+  string workflow_definition_id = 2;
+  string workflow_definition_version = 3;
+  WorkflowExecutionStatus status = 4;
+  google.protobuf.Struct input = 5;
+  google.protobuf.Struct output = 6;
+  google.protobuf.Struct search_attributes = 7;
+  google.protobuf.Struct metadata = 8;
+  google.protobuf.Timestamp started_at = 9;
+  google.protobuf.Timestamp completed_at = 10;
+  google.protobuf.Timestamp updated_at = 11;
+  string error_message = 12;
+  string error_type = 13;
+  int64 history_length = 14;
+  int64 history_size_bytes = 15;
+  string parent_workflow_id = 16;
+  string parent_step_id = 17;
+  repeated WorkflowEvent events = 18;
+}
+
+enum WorkflowExecutionStatus {
+  WORKFLOW_EXECUTION_STATUS_UNSPECIFIED = 0;
+  WORKFLOW_EXECUTION_STATUS_RUNNING = 1;
+  WORKFLOW_EXECUTION_STATUS_COMPLETED = 2;
+  WORKFLOW_EXECUTION_STATUS_FAILED = 3;
+  WORKFLOW_EXECUTION_STATUS_TIMED_OUT = 4;
+  WORKFLOW_EXECUTION_STATUS_CANCELLED = 5;
+  WORKFLOW_EXECUTION_STATUS_TERMINATED = 6;
+  WORKFLOW_EXECUTION_STATUS_CONTINUED_AS_NEW = 7;
+}
+
+// WorkflowEvent represents a single event in the workflow history
+message WorkflowEvent {
+  int64 event_id = 1;
+  WorkflowEventType event_type = 2;
+  google.protobuf.Timestamp timestamp = 3;
+  google.protobuf.Struct attributes = 4;
+}
+
+enum WorkflowEventType {
+  WORKFLOW_EVENT_TYPE_UNSPECIFIED = 0;
+  WORKFLOW_EVENT_TYPE_WORKFLOW_STARTED = 1;
+  WORKFLOW_EVENT_TYPE_WORKFLOW_COMPLETED = 2;
+  WORKFLOW_EVENT_TYPE_WORKFLOW_FAILED = 3;
+  WORKFLOW_EVENT_TYPE_WORKFLOW_TIMED_OUT = 4;
+  WORKFLOW_EVENT_TYPE_WORKFLOW_CANCELLED = 5;
+  WORKFLOW_EVENT_TYPE_WORKFLOW_TERMINATED = 6;
+  WORKFLOW_EVENT_TYPE_WORKFLOW_CONTINUED_AS_NEW = 7;
+  WORKFLOW_EVENT_TYPE_STEP_STARTED = 10;
+  WORKFLOW_EVENT_TYPE_STEP_COMPLETED = 11;
+  WORKFLOW_EVENT_TYPE_STEP_FAILED = 12;
+  WORKFLOW_EVENT_TYPE_STEP_TIMED_OUT = 13;
+  WORKFLOW_EVENT_TYPE_STEP_CANCELLED = 14;
+  WORKFLOW_EVENT_TYPE_TASK_SCHEDULED = 20;
+  WORKFLOW_EVENT_TYPE_TASK_STARTED = 21;
+  WORKFLOW_EVENT_TYPE_TASK_COMPLETED = 22;
+  WORKFLOW_EVENT_TYPE_TASK_FAILED = 23;
+  WORKFLOW_EVENT_TYPE_TASK_TIMED_OUT = 24;
+  WORKFLOW_EVENT_TYPE_TASK_CANCELLED = 25;
+  WORKFLOW_EVENT_TYPE_SIGNAL_RECEIVED = 30;
+  WORKFLOW_EVENT_TYPE_TIMER_FIRED = 31;
+  WORKFLOW_EVENT_TYPE_CHILD_WORKFLOW_STARTED = 40;
+  WORKFLOW_EVENT_TYPE_CHILD_WORKFLOW_COMPLETED = 41;
+  WORKFLOW_EVENT_TYPE_CHILD_WORKFLOW_FAILED = 42;
+  WORKFLOW_EVENT_TYPE_CHILD_WORKFLOW_TIMED_OUT = 43;
+  WORKFLOW_EVENT_TYPE_CHILD_WORKFLOW_CANCELLED = 44;
+  WORKFLOW_EVENT_TYPE_WORKFLOW_UPDATED = 50;
+}
+
+// TimeoutPolicy defines timeout behavior for steps/tasks
+message TimeoutPolicy {
+  google.protobuf.Duration start_to_close_timeout = 1;
+  google.protobuf.Duration schedule_to_start_timeout = 2;
+  google.protobuf.Duration schedule_to_close_timeout = 3;
+  google.protobuf.Duration heartbeat_timeout = 4;
+}
+
+// RetryPolicy defines retry behavior for steps/tasks
+message RetryPolicy {
+  int32 maximum_attempts = 1;           // 0 = unlimited
+  google.protobuf.Duration initial_interval = 2;
+  double backoff_coefficient = 3;
+  google.protobuf.Duration maximum_interval = 4;
+  google.protobuf.Duration expiration_interval = 5;
+  repeated string non_retryable_error_types = 6;
+}
+
+// PermissionRequirement defines permissions needed for a step
+message PermissionRequirement {
+  string resource = 1;
+  string action = 2;
+  repeated string attributes = 3;
+  int32 minimum_level = 4;
+  google.protobuf.Struct context = 5;
+}
+
+// Request/Response messages for workflow definition management
+message CreateWorkflowDefinitionRequest {
+  WorkflowDefinition definition = 1;
+}
+
+message CreateWorkflowDefinitionResponse {
+  WorkflowDefinition definition = 1;
+}
+
+message GetWorkflowDefinitionRequest {
+  string id = 1;
+  string version = 2;  // Optional, latest if not specified
+}
+
+message GetWorkflowDefinitionResponse {
+  WorkflowDefinition definition = 1;
+}
+
+message ListWorkflowDefinitionsRequest {
+  int32 page_size = 1;
+  string page_token = 2;
+  string name_filter = 3;
+}
+
+message ListWorkflowDefinitionsResponse {
+  repeated WorkflowDefinition definitions = 1;
+  string next_page_token = 2;
+}
+
+// Request/Response messages for workflow execution management
+message StartWorkflowExecutionRequest {
+  string workflow_id = 1;  // Optional, generated if not provided
+  string workflow_definition_id = 2;
+  string workflow_definition_version = 3;  // Optional, latest if not specified
+  google.protobuf.Struct input = 4;
+  google.protobuf.Struct search_attributes = 5;
+  google.protobuf.Struct metadata = 6;
+  string task_queue = 7;
+  string parent_workflow_id = 8;
+  string parent_step_id = 9;
+  google.protobuf.Duration workflow_execution_timeout = 10;
+  google.protobuf.Duration workflow_run_timeout = 11;
+}
+
+message StartWorkflowExecutionResponse {
+  WorkflowExecution execution = 1;
+}
+
+message GetWorkflowExecutionRequest {
+  string workflow_id = 1;
+  string run_id = 2;  // Optional, latest run if not specified
+}
+
+message GetWorkflowExecutionResponse {
+  WorkflowExecution execution = 1;
+}
+
+message ListWorkflowExecutionsRequest {
+  int32 page_size = 1;
+  string page_token = 2;
+  string workflow_definition_id = 3;
+  string workflow_id = 4;
+  repeated WorkflowExecutionStatus status = 5;
+  google.protobuf.Timestamp start_time = 6;
+  google.protobuf.Timestamp end_time = 7;
+  google.protobuf.Struct search_attributes_filter = 8;
+}
+
+message ListWorkflowExecutionsResponse {
+  repeated WorkflowExecution executions = 1;
+  string next_page_token = 2;
+}
+
+message CancelWorkflowExecutionRequest {
+  string workflow_id = 1;
+  string run_id = 2;
+  string reason = 3;
+}
+
+message CancelWorkflowExecutionResponse {
+  WorkflowExecution execution = 1;
+}
+
+message TerminateWorkflowExecutionRequest {
+  string workflow_id = 1;
+  string run_id = 2;
+  string reason = 3;
+  google.protobuf.Struct details = 4;
+}
+
+message TerminateWorkflowExecutionResponse {
+  WorkflowExecution execution = 1;
+}
+
+message SignalWorkflowExecutionRequest {
+  string workflow_id = 1;
+  string run_id = 2;
+  string signal_name = 3;
+  google.protobuf.Struct signal_data = 4;
+}
+
+message SignalWorkflowExecutionResponse {
+  bool accepted = 1;
+}
+
+message GetWorkflowExecutionHistoryRequest {
+  string workflow_id = 1;
+  string run_id = 2;
+  int64 next_event_id = 3;  // Pagination
+  int32 page_size = 4;
+}
+
+message GetWorkflowExecutionHistoryResponse {
+  repeated WorkflowEvent events = 1;
+  string next_page_token = 2;
+  bool has_more = 3;
+}
+
+// Replay request for debugging/recovery
+message ReplayWorkflowExecutionRequest {
+  string workflow_id = 1;
+  int64 from_event_id = 2;  // Replay from this event ID (exclusive)
+  google.protobuf.Struct new_input = 3;  // Optional new input
+}
+
+message ReplayWorkflowExecutionResponse {
+  WorkflowExecution execution = 1;
+}
+
+// Health check
+message HealthCheckRequest {}
+
+message HealthCheckResponse {
+  string status = 1;
+  google.protobuf.Timestamp timestamp = 2;
+  google.protobuf.Struct details = 3;
+}
