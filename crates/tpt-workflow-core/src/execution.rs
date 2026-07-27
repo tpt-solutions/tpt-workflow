@@ -1,15 +1,15 @@
 //! Workflow execution engine
 
 use crate::error::{Error, Result};
+use crate::permissions::{AuthDecision, StepPermissionChecker};
 use crate::workflow::{
-    WorkflowDefinition, WorkflowExecution, WorkflowExecutionId, WorkflowExecutionStatus,
-    WorkflowEvent, WorkflowEventType, StepDefinition, StepId, TaskId,
+    StepDefinition, StepId, TaskId, WorkflowDefinition, WorkflowEvent, WorkflowEventType,
+    WorkflowExecution, WorkflowExecutionId, WorkflowExecutionStatus,
 };
-use chrono::{DateTime, Duration, Utc};
+use chrono::{Duration, Utc};
 use serde_json::Value;
-use std::collections::{HashMap, VecDeque};
+use std::collections::HashMap;
 use std::sync::Arc;
-use tokio::sync::RwLock;
 use tracing::{debug, error, info, instrument, warn};
 
 /// Context for workflow execution
@@ -21,6 +21,7 @@ pub struct ExecutionContext {
     pub variables: HashMap<String, Value>,
     pub current_step: Option<StepId>,
     pub completed_steps: HashMap<StepId, Value>,
+    pub completed_step_order: Vec<StepId>,
     pub step_attempts: HashMap<StepId, u32>,
 }
 
@@ -37,24 +38,28 @@ impl ExecutionContext {
             variables: HashMap::new(),
             current_step: None,
             completed_steps: HashMap::new(),
+            completed_step_order: Vec::new(),
             step_attempts: HashMap::new(),
         }
     }
-    
+
     pub fn get_step_output(&self, step_id: &StepId) -> Option<&Value> {
         self.completed_steps.get(step_id)
     }
-    
+
     pub fn set_step_output(&mut self, step_id: StepId, output: Value) {
+        if !self.completed_steps.contains_key(&step_id) {
+            self.completed_step_order.push(step_id.clone());
+        }
         self.completed_steps.insert(step_id, output);
     }
-    
+
     pub fn increment_attempt(&mut self, step_id: &StepId) -> u32 {
         let attempt = self.step_attempts.entry(step_id.clone()).or_insert(0);
         *attempt += 1;
         *attempt
     }
-    
+
     pub fn get_attempt(&self, step_id: &StepId) -> u32 {
         self.step_attempts.get(step_id).copied().unwrap_or(0)
     }
@@ -79,22 +84,29 @@ pub enum StepExecutionResult {
 pub struct WorkflowExecutor {
     persistence: Arc<dyn crate::persistence::PersistenceLayer>,
     task_queue_manager: Arc<crate::task_queue::TaskQueueManager>,
-    worker_registry: Arc<crate::worker::WorkerRegistry>,
+    _worker_registry: Arc<dyn crate::worker::WorkerRegistry>,
+    permission_checker: Option<StepPermissionChecker>,
 }
 
 impl WorkflowExecutor {
     pub fn new(
         persistence: Arc<dyn crate::persistence::PersistenceLayer>,
         task_queue_manager: Arc<crate::task_queue::TaskQueueManager>,
-        worker_registry: Arc<crate::worker::WorkerRegistry>,
+        _worker_registry: Arc<dyn crate::worker::WorkerRegistry>,
     ) -> Self {
         Self {
             persistence,
             task_queue_manager,
-            worker_registry,
+            _worker_registry,
+            permission_checker: None,
         }
     }
-    
+
+    pub fn with_permissions(mut self, checker: StepPermissionChecker) -> Self {
+        self.permission_checker = Some(checker);
+        self
+    }
+
     /// Start a new workflow execution
     #[instrument(skip(self, definition, input))]
     pub async fn start_workflow(
@@ -104,17 +116,17 @@ impl WorkflowExecutor {
         input: Value,
     ) -> Result<WorkflowExecution> {
         info!("Starting workflow execution: {}", workflow_id);
-        
+
         let mut execution = WorkflowExecution::new(
             workflow_id.clone(),
             definition.id.clone(),
             definition.version.clone(),
             input.clone(),
         );
-        
+
         // Create execution context
         let mut context = ExecutionContext::new(workflow_id.clone(), definition.clone(), input);
-        
+
         // Record workflow started event
         let event = WorkflowEvent::new(
             WorkflowEventType::WorkflowStarted,
@@ -124,23 +136,29 @@ impl WorkflowExecutor {
             }),
         );
         context.add_event(event);
-        
+
         // Execute the workflow
         match self.execute_workflow(&mut execution, &mut context).await {
             Ok(_) => {
-                execution.complete(context.variables.get("output").cloned().unwrap_or(Value::Null));
+                if execution.status == WorkflowExecutionStatus::Completed {
+                    execution.output = context
+                        .variables
+                        .get("output")
+                        .cloned()
+                        .unwrap_or(Value::Null);
+                }
             }
             Err(e) => {
                 execution.fail(e.to_string(), "ExecutionError".to_string());
             }
         }
-        
+
         // Persist the execution
         self.persistence.save_workflow_execution(&execution).await?;
-        
+
         Ok(execution)
     }
-    
+
     /// Execute workflow from current state (for replay)
     #[instrument(skip(self, execution, context))]
     pub async fn execute_workflow(
@@ -148,21 +166,41 @@ impl WorkflowExecutor {
         execution: &mut WorkflowExecution,
         context: &mut ExecutionContext,
     ) -> Result<()> {
-        let definition = &context.workflow_definition;
-        
+        let definition = context.workflow_definition.clone();
+
         // Determine next step to execute
-        while let Some(step_id) = self.get_next_step(definition, context)? {
+        while let Some(step_id) = self.get_next_step(&definition, context)? {
             context.current_step = Some(step_id.clone());
             execution.current_step = Some(step_id.clone());
             execution.updated_at = Utc::now();
-            
+
             // Execute the step
             let step = definition.get_step(&step_id).ok_or_else(|| {
                 Error::InvalidWorkflowDefinition(format!("Step not found: {}", step_id))
             })?;
-            
+
             debug!("Executing step: {}", step_id);
-            
+
+            // Check permissions if a checker is configured
+            if let Some(ref checker) = self.permission_checker {
+                let actor = crate::permissions::ActorContext {
+                    actor_id: "system".to_string(),
+                    roles: Vec::new(),
+                    attributes: Vec::new(),
+                    clearance_level: i32::MAX,
+                };
+                match checker.check(step, &actor).await? {
+                    AuthDecision::Deny(reason) => {
+                        warn!("Permission denied for step {}: {}", step_id, reason);
+                        return Err(Error::PermissionDenied(format!(
+                            "Step {}: {}",
+                            step_id, reason
+                        )));
+                    }
+                    AuthDecision::Allow => {}
+                }
+            }
+
             // Record step started event
             let event = WorkflowEvent::new(
                 WorkflowEventType::StepStarted,
@@ -173,16 +211,17 @@ impl WorkflowExecutor {
                 }),
             );
             context.add_event(event);
-            
+
             match self.execute_step(step, context).await {
                 Ok(StepExecutionResult::Completed(output)) => {
+                    let output_for_event = output.clone();
                     context.set_step_output(step_id.clone(), output);
-                    
+
                     let event = WorkflowEvent::new(
                         WorkflowEventType::StepCompleted,
                         serde_json::json!({
                             "step_id": step_id.to_string(),
-                            "output": output,
+                            "output": output_for_event,
                         }),
                     );
                     context.add_event(event);
@@ -191,9 +230,11 @@ impl WorkflowExecutor {
                     // Check if we should retry
                     let attempt = context.increment_attempt(&step_id);
                     if attempt < step.retry_policy.max_attempts {
-                        warn!("Step {} failed (attempt {}/{}): {}, retrying...", 
-                            step_id, attempt, step.retry_policy.max_attempts, error);
-                        
+                        warn!(
+                            "Step {} failed (attempt {}/{}): {}, retrying...",
+                            step_id, attempt, step.retry_policy.max_attempts, error
+                        );
+
                         let event = WorkflowEvent::new(
                             WorkflowEventType::StepFailed,
                             serde_json::json!({
@@ -204,14 +245,17 @@ impl WorkflowExecutor {
                             }),
                         );
                         context.add_event(event);
-                        
+
                         // Wait for backoff
                         let delay = self.calculate_backoff(&step.retry_policy, attempt);
                         tokio::time::sleep(delay.to_std().unwrap_or_default()).await;
                         continue; // Retry the step
                     } else {
-                        error!("Step {} failed after {} attempts: {}", step_id, attempt, error);
-                        
+                        error!(
+                            "Step {} failed after {} attempts: {}",
+                            step_id, attempt, error
+                        );
+
                         let event = WorkflowEvent::new(
                             WorkflowEventType::StepFailed,
                             serde_json::json!({
@@ -222,19 +266,22 @@ impl WorkflowExecutor {
                             }),
                         );
                         context.add_event(event);
-                        
+
                         // Check for error handling steps
                         if !step.error_steps.is_empty() {
                             // Execute error steps
                             for error_step_id in &step.error_steps {
-                                if let Some(error_step) = definition.get_step(error_step_id) {
+                                if let Some(_error_step) = definition.get_step(error_step_id) {
                                     // Execute error handling step
                                     // For now, just continue
                                 }
                             }
                         }
-                        
-                        return Err(Error::ExecutionFailed(format!("Step {} failed: {}", step_id, error)));
+
+                        return Err(Error::ExecutionFailed(format!(
+                            "Step {} failed: {}",
+                            step_id, error
+                        )));
                     }
                 }
                 Ok(StepExecutionResult::Waiting(reason)) => {
@@ -247,13 +294,18 @@ impl WorkflowExecutor {
                 Ok(StepExecutionResult::Retry(reason)) => {
                     let attempt = context.increment_attempt(&step_id);
                     if attempt < step.retry_policy.max_attempts {
-                        warn!("Step {} retry requested (attempt {}/{}): {}", 
-                            step_id, attempt, step.retry_policy.max_attempts, reason);
+                        warn!(
+                            "Step {} retry requested (attempt {}/{}): {}",
+                            step_id, attempt, step.retry_policy.max_attempts, reason
+                        );
                         let delay = self.calculate_backoff(&step.retry_policy, attempt);
                         tokio::time::sleep(delay.to_std().unwrap_or_default()).await;
                         continue;
                     }
-                    return Err(Error::ExecutionFailed(format!("Step {} retry exhausted: {}", step_id, reason)));
+                    return Err(Error::ExecutionFailed(format!(
+                        "Step {} retry exhausted: {}",
+                        step_id, reason
+                    )));
                 }
                 Ok(StepExecutionResult::ContinueAsNew(new_input)) => {
                     execution.status = WorkflowExecutionStatus::ContinuedAsNew;
@@ -266,20 +318,20 @@ impl WorkflowExecutor {
                     return Err(e);
                 }
             }
-            
+
             // Persist state after each step
             self.persistence.save_workflow_execution(execution).await?;
         }
-        
+
         // Workflow completed
         if execution.status == WorkflowExecutionStatus::Running {
             execution.status = WorkflowExecutionStatus::Completed;
             execution.completed_at = Some(Utc::now());
         }
-        
+
         Ok(())
     }
-    
+
     /// Execute a single step
     async fn execute_step(
         &self,
@@ -287,24 +339,12 @@ impl WorkflowExecutor {
         context: &mut ExecutionContext,
     ) -> Result<StepExecutionResult> {
         match step.step_type {
-            crate::workflow::StepType::Task => {
-                self.execute_task_step(step, context).await
-            }
-            crate::workflow::StepType::Decision => {
-                self.execute_decision_step(step, context).await
-            }
-            crate::workflow::StepType::Parallel => {
-                self.execute_parallel_step(step, context).await
-            }
-            crate::workflow::StepType::Sequence => {
-                self.execute_sequence_step(step, context).await
-            }
-            crate::workflow::StepType::Wait => {
-                self.execute_wait_step(step, context).await
-            }
-            crate::workflow::StepType::Signal => {
-                self.execute_signal_step(step, context).await
-            }
+            crate::workflow::StepType::Task => self.execute_task_step(step, context).await,
+            crate::workflow::StepType::Decision => self.execute_decision_step(step, context).await,
+            crate::workflow::StepType::Parallel => self.execute_parallel_step(step, context).await,
+            crate::workflow::StepType::Sequence => self.execute_sequence_step(step, context).await,
+            crate::workflow::StepType::Wait => self.execute_wait_step(step, context).await,
+            crate::workflow::StepType::Signal => self.execute_signal_step(step, context).await,
             crate::workflow::StepType::ChildWorkflow => {
                 self.execute_child_workflow_step(step, context).await
             }
@@ -313,7 +353,7 @@ impl WorkflowExecutor {
             }
         }
     }
-    
+
     /// Execute a task step (dispatch to worker)
     async fn execute_task_step(
         &self,
@@ -321,10 +361,10 @@ impl WorkflowExecutor {
         context: &mut ExecutionContext,
     ) -> Result<StepExecutionResult> {
         let task_id = TaskId::new();
-        
+
         // Prepare task input from workflow input and step input
         let task_input = self.prepare_task_input(step, context)?;
-        
+
         // Schedule task via task queue
         self.task_queue_manager
             .schedule_task(
@@ -335,7 +375,7 @@ impl WorkflowExecutor {
                 step.id.clone(),
             )
             .await?;
-        
+
         // Record task scheduled event
         let event = WorkflowEvent::new(
             WorkflowEventType::TaskScheduled,
@@ -347,17 +387,20 @@ impl WorkflowExecutor {
             }),
         );
         context.add_event(event);
-        
+
         // For now, return waiting - in real implementation, we'd wait for completion
         // via async notification or polling
-        Ok(StepExecutionResult::Waiting(format!("Task {} scheduled", task_id)))
+        Ok(StepExecutionResult::Waiting(format!(
+            "Task {} scheduled",
+            task_id
+        )))
     }
-    
+
     /// Execute a decision step (evaluate condition)
     async fn execute_decision_step(
         &self,
         step: &StepDefinition,
-        context: &mut ExecutionContext,
+        _context: &mut ExecutionContext,
     ) -> Result<StepExecutionResult> {
         // Evaluate decision expression
         // For now, just return completed with decision result
@@ -366,12 +409,12 @@ impl WorkflowExecutor {
             "next_steps": step.next_steps.iter().map(|s| s.to_string()).collect::<Vec<_>>(),
         })))
     }
-    
+
     /// Execute parallel step
     async fn execute_parallel_step(
         &self,
         step: &StepDefinition,
-        context: &mut ExecutionContext,
+        _context: &mut ExecutionContext,
     ) -> Result<StepExecutionResult> {
         // Execute multiple steps in parallel
         // For now, just return completed
@@ -379,47 +422,51 @@ impl WorkflowExecutor {
             "parallel_steps": step.next_steps.iter().map(|s| s.to_string()).collect::<Vec<_>>(),
         })))
     }
-    
+
     /// Execute sequence step
     async fn execute_sequence_step(
         &self,
-        step: &StepDefinition,
-        context: &mut ExecutionContext,
+        _step: &StepDefinition,
+        _context: &mut ExecutionContext,
     ) -> Result<StepExecutionResult> {
         // Sequence steps are handled by the main workflow loop
         Ok(StepExecutionResult::Completed(Value::Null))
     }
-    
+
     /// Execute wait step
     async fn execute_wait_step(
         &self,
-        step: &StepDefinition,
-        context: &mut ExecutionContext,
+        _step: &StepDefinition,
+        _context: &mut ExecutionContext,
     ) -> Result<StepExecutionResult> {
         // Wait for signal or timer
-        Ok(StepExecutionResult::Waiting("Waiting for signal or timer".to_string()))
+        Ok(StepExecutionResult::Waiting(
+            "Waiting for signal or timer".to_string(),
+        ))
     }
-    
+
     /// Execute signal step
     async fn execute_signal_step(
         &self,
-        step: &StepDefinition,
-        context: &mut ExecutionContext,
+        _step: &StepDefinition,
+        _context: &mut ExecutionContext,
     ) -> Result<StepExecutionResult> {
         // Send signal to another workflow
         Ok(StepExecutionResult::Completed(Value::Null))
     }
-    
+
     /// Execute child workflow step
     async fn execute_child_workflow_step(
         &self,
-        step: &StepDefinition,
-        context: &mut ExecutionContext,
+        _step: &StepDefinition,
+        _context: &mut ExecutionContext,
     ) -> Result<StepExecutionResult> {
         // Start child workflow
-        Ok(StepExecutionResult::Waiting("Child workflow started".to_string()))
+        Ok(StepExecutionResult::Waiting(
+            "Child workflow started".to_string(),
+        ))
     }
-    
+
     /// Execute continue-as-new step
     async fn execute_continue_as_new_step(
         &self,
@@ -429,11 +476,15 @@ impl WorkflowExecutor {
         let new_input = self.prepare_task_input(step, context)?;
         Ok(StepExecutionResult::ContinueAsNew(new_input))
     }
-    
+
     /// Prepare task input by combining workflow input and step input
-    fn prepare_task_input(&self, step: &StepDefinition, context: &ExecutionContext) -> Result<Value> {
+    fn prepare_task_input(
+        &self,
+        step: &StepDefinition,
+        context: &ExecutionContext,
+    ) -> Result<Value> {
         let mut input = context.input.clone();
-        
+
         // Merge step-specific input
         if let Value::Object(step_input) = &step.input {
             if let Value::Object(workflow_input) = &mut input {
@@ -442,54 +493,61 @@ impl WorkflowExecutor {
                 }
             }
         }
-        
+
         // Add completed step outputs
         for (step_id, output) in &context.completed_steps {
             if let Value::Object(obj) = &mut input {
                 obj.insert(format!("step_{}", step_id), output.clone());
             }
         }
-        
+
         Ok(input)
     }
-    
+
     /// Calculate backoff duration
     fn calculate_backoff(&self, policy: &crate::workflow::RetryPolicy, attempt: u32) -> Duration {
         let base = policy.initial_interval;
         let coefficient = policy.backoff_coefficient;
         let max = policy.maximum_interval;
-        
+
         let mut delay = base;
         for _ in 1..attempt {
-            delay = Duration::nanoseconds((delay.num_nanoseconds().unwrap_or(0) as f64 * coefficient) as i64);
+            delay = Duration::nanoseconds(
+                (delay.num_nanoseconds().unwrap_or(0) as f64 * coefficient) as i64,
+            );
             if delay > max {
                 delay = max;
                 break;
             }
         }
-        
+
         delay
     }
-    
+
     /// Get next step to execute based on workflow definition and current state
-    fn get_next_step(&self, definition: &WorkflowDefinition, context: &ExecutionContext) -> Result<Option<StepId>> {
+    fn get_next_step(
+        &self,
+        definition: &WorkflowDefinition,
+        context: &ExecutionContext,
+    ) -> Result<Option<StepId>> {
         // Find steps that have all dependencies completed and haven't been executed
         for step in &definition.steps {
             // Skip if already completed
             if context.completed_steps.contains_key(&step.id) {
                 continue;
             }
-            
+
             // Check if all dependencies are completed
-            let deps_completed = step.depends_on.iter().all(|dep| {
-                context.completed_steps.contains_key(dep)
-            });
-            
+            let deps_completed = step
+                .depends_on
+                .iter()
+                .all(|dep| context.completed_steps.contains_key(dep));
+
             if deps_completed {
                 return Ok(Some(step.id.clone()));
             }
         }
-        
+
         Ok(None)
     }
 }

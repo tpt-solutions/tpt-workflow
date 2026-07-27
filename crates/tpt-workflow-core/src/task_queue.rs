@@ -1,14 +1,14 @@
 //! Task queue management
 
 use crate::error::{Error, Result};
-use crate::workflow::{TaskId, WorkflowExecutionId, StepId};
+use crate::workflow::{StepId, TaskId, WorkflowExecutionId};
 use async_trait::async_trait;
-use chrono::{DateTime, Duration, Utc};
+use chrono::{DateTime, Utc};
 use serde_json::Value;
 use std::collections::{HashMap, VecDeque};
 use std::sync::Arc;
 use tokio::sync::{Mutex, RwLock};
-use tracing::{debug, info, warn};
+use tracing::{debug, info};
 
 /// Task status
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -48,28 +48,28 @@ pub struct QueuedTask {
 pub trait TaskQueue: Send + Sync {
     /// Add a task to the queue
     async fn enqueue(&self, task: QueuedTask) -> Result<()>;
-    
+
     /// Get next task from the queue
     async fn dequeue(&self, worker_id: &str, max_tasks: usize) -> Result<Vec<QueuedTask>>;
-    
+
     /// Mark task as running
     async fn start_task(&self, task_token: &str, worker_id: &str) -> Result<()>;
-    
+
     /// Complete a task
     async fn complete_task(&self, task_token: &str, output: Value) -> Result<()>;
-    
+
     /// Fail a task
     async fn fail_task(&self, task_token: &str, error: String) -> Result<()>;
-    
+
     /// Cancel a task
     async fn cancel_task(&self, task_token: &str, reason: String) -> Result<()>;
-    
+
     /// Get task by token
     async fn get_task(&self, task_token: &str) -> Result<Option<QueuedTask>>;
-    
+
     /// Get queue stats
     async fn get_stats(&self) -> Result<TaskQueueStats>;
-    
+
     /// Heartbeat for a running task
     async fn heartbeat_task(&self, task_token: &str, progress: Value) -> Result<bool>;
 }
@@ -87,7 +87,7 @@ pub struct TaskQueueStats {
 
 /// In-memory task queue implementation
 pub struct InMemoryTaskQueue {
-    name: String,
+    _name: String,
     pending: Arc<Mutex<VecDeque<QueuedTask>>>,
     running: Arc<RwLock<HashMap<String, QueuedTask>>>,
     completed: Arc<RwLock<HashMap<String, QueuedTask>>>,
@@ -98,7 +98,7 @@ impl InMemoryTaskQueue {
     pub fn new(name: String) -> Self {
         let now = Utc::now();
         Self {
-            name: name.clone(),
+            _name: name.clone(),
             pending: Arc::new(Mutex::new(VecDeque::new())),
             running: Arc::new(RwLock::new(HashMap::new())),
             completed: Arc::new(RwLock::new(HashMap::new())),
@@ -112,13 +112,13 @@ impl InMemoryTaskQueue {
             })),
         }
     }
-    
+
     async fn update_stats(&self) {
         let mut stats = self.stats.write().await;
         let pending = self.pending.lock().await;
         let running = self.running.read().await;
         let completed = self.completed.read().await;
-        
+
         stats.pending_tasks = pending.len() as u64;
         stats.running_tasks = running.len() as u64;
         stats.completed_tasks = completed
@@ -136,33 +136,37 @@ impl InMemoryTaskQueue {
 #[async_trait]
 impl TaskQueue for InMemoryTaskQueue {
     async fn enqueue(&self, task: QueuedTask) -> Result<()> {
-        let mut pending = self.pending.lock().await;
-        pending.push_back(task);
+        {
+            let mut pending = self.pending.lock().await;
+            pending.push_back(task);
+        }
         self.update_stats().await;
         Ok(())
     }
-    
-    async fn dequeue(&self, worker_id: &str, max_tasks: usize) -> Result<Vec<QueuedTask>> {
-        let mut pending = self.pending.lock().await;
-        let mut running = self.running.write().await;
-        let mut tasks = Vec::new();
-        
-        for _ in 0..max_tasks {
-            if let Some(mut task) = pending.pop_front() {
-                task.status = TaskStatus::Running;
-                task.started_at = Some(Utc::now());
-                running.insert(task.task_token.clone(), task.clone());
-                tasks.push(task);
-            } else {
-                break;
+
+    async fn dequeue(&self, _worker_id: &str, max_tasks: usize) -> Result<Vec<QueuedTask>> {
+        let tasks = {
+            let mut pending = self.pending.lock().await;
+            let mut running = self.running.write().await;
+            let mut tasks = Vec::new();
+
+            for _ in 0..max_tasks {
+                if let Some(mut task) = pending.pop_front() {
+                    task.status = TaskStatus::Running;
+                    task.started_at = Some(Utc::now());
+                    running.insert(task.task_token.clone(), task.clone());
+                    tasks.push(task);
+                } else {
+                    break;
+                }
             }
-        }
-        
+            tasks
+        };
         self.update_stats().await;
         Ok(tasks)
     }
-    
-    async fn start_task(&self, task_token: &str, worker_id: &str) -> Result<()> {
+
+    async fn start_task(&self, task_token: &str, _worker_id: &str) -> Result<()> {
         let mut running = self.running.write().await;
         if let Some(task) = running.get_mut(task_token) {
             task.status = TaskStatus::Running;
@@ -173,64 +177,79 @@ impl TaskQueue for InMemoryTaskQueue {
             Err(Error::TaskNotFound(task_token.to_string()))
         }
     }
-    
-    async fn complete_task(&self, task_token: &str, output: Value) -> Result<()> {
-        let mut running = self.running.write().await;
-        let mut completed = self.completed.write().await;
-        
-        if let Some(mut task) = running.remove(task_token) {
-            task.status = TaskStatus::Completed;
-            task.completed_at = Some(Utc::now());
-            completed.insert(task_token.to_string(), task);
-            self.update_stats().await;
-            Ok(())
-        } else {
-            Err(Error::TaskNotFound(task_token.to_string()))
-        }
-    }
-    
-    async fn fail_task(&self, task_token: &str, error: String) -> Result<()> {
-        let mut running = self.running.write().await;
-        let mut completed = self.completed.write().await;
-        
-        if let Some(mut task) = running.remove(task_token) {
-            task.status = TaskStatus::Failed;
-            task.completed_at = Some(Utc::now());
-            completed.insert(task_token.to_string(), task);
-            self.update_stats().await;
-            Ok(())
-        } else {
-            Err(Error::TaskNotFound(task_token.to_string()))
-        }
-    }
-    
-    async fn cancel_task(&self, task_token: &str, reason: String) -> Result<()> {
-        // Check pending queue
-        let mut pending = self.pending.lock().await;
-        if let Some(pos) = pending.iter().position(|t| t.task_token == task_token) {
-            let mut task = pending.remove(pos).unwrap();
-            task.status = TaskStatus::Cancelled;
-            task.completed_at = Some(Utc::now());
+
+    async fn complete_task(&self, task_token: &str, _output: Value) -> Result<()> {
+        let result = {
+            let mut running = self.running.write().await;
             let mut completed = self.completed.write().await;
-            completed.insert(task_token.to_string(), task);
+
+            if let Some(mut task) = running.remove(task_token) {
+                task.status = TaskStatus::Completed;
+                task.completed_at = Some(Utc::now());
+                completed.insert(task_token.to_string(), task);
+                Ok(())
+            } else {
+                Err(Error::TaskNotFound(task_token.to_string()))
+            }
+        };
+        if result.is_ok() {
             self.update_stats().await;
-            return Ok(());
         }
-        
-        // Check running tasks
-        let mut running = self.running.write().await;
-        if let Some(mut task) = running.remove(task_token) {
-            task.status = TaskStatus::Cancelled;
-            task.completed_at = Some(Utc::now());
-            let mut completed = self.completed.write().await;
-            completed.insert(task_token.to_string(), task);
-            self.update_stats().await;
-            Ok(())
-        } else {
-            Err(Error::TaskNotFound(task_token.to_string()))
-        }
+        result
     }
-    
+
+    async fn fail_task(&self, task_token: &str, _error: String) -> Result<()> {
+        let result = {
+            let mut running = self.running.write().await;
+            let mut completed = self.completed.write().await;
+
+            if let Some(mut task) = running.remove(task_token) {
+                task.status = TaskStatus::Failed;
+                task.completed_at = Some(Utc::now());
+                completed.insert(task_token.to_string(), task);
+                Ok(())
+            } else {
+                Err(Error::TaskNotFound(task_token.to_string()))
+            }
+        };
+        if result.is_ok() {
+            self.update_stats().await;
+        }
+        result
+    }
+
+    async fn cancel_task(&self, task_token: &str, _reason: String) -> Result<()> {
+        let result = {
+            // Check pending queue
+            let mut pending = self.pending.lock().await;
+            if let Some(pos) = pending.iter().position(|t| t.task_token == task_token) {
+                let mut task = pending.remove(pos).unwrap();
+                task.status = TaskStatus::Cancelled;
+                task.completed_at = Some(Utc::now());
+                let mut completed = self.completed.write().await;
+                completed.insert(task_token.to_string(), task);
+                return Ok(());
+            }
+            drop(pending);
+
+            // Check running tasks
+            let mut running = self.running.write().await;
+            if let Some(mut task) = running.remove(task_token) {
+                task.status = TaskStatus::Cancelled;
+                task.completed_at = Some(Utc::now());
+                let mut completed = self.completed.write().await;
+                completed.insert(task_token.to_string(), task);
+                Ok(())
+            } else {
+                Err(Error::TaskNotFound(task_token.to_string()))
+            }
+        };
+        if result.is_ok() {
+            self.update_stats().await;
+        }
+        result
+    }
+
     async fn get_task(&self, task_token: &str) -> Result<Option<QueuedTask>> {
         // Check pending
         let pending = self.pending.lock().await;
@@ -238,27 +257,27 @@ impl TaskQueue for InMemoryTaskQueue {
             return Ok(Some(task.clone()));
         }
         drop(pending);
-        
+
         // Check running
         let running = self.running.read().await;
         if let Some(task) = running.get(task_token) {
             return Ok(Some(task.clone()));
         }
         drop(running);
-        
+
         // Check completed
         let completed = self.completed.read().await;
         Ok(completed.get(task_token).cloned())
     }
-    
+
     async fn get_stats(&self) -> Result<TaskQueueStats> {
         self.update_stats().await;
         Ok(self.stats.read().await.clone())
     }
-    
-    async fn heartbeat_task(&self, task_token: &str, progress: Value) -> Result<bool> {
+
+    async fn heartbeat_task(&self, task_token: &str, _progress: Value) -> Result<bool> {
         let mut running = self.running.write().await;
-        if let Some(task) = running.get_mut(task_token) {
+        if let Some(_task) = running.get_mut(task_token) {
             // In real implementation, check if task should be cancelled
             Ok(false)
         } else {
@@ -278,7 +297,7 @@ impl TaskQueueManager {
             queues: Arc::new(RwLock::new(HashMap::new())),
         }
     }
-    
+
     /// Register a task queue
     pub async fn register_queue(&self, queue: Arc<dyn TaskQueue>) -> Result<()> {
         let stats = queue.get_stats().await?;
@@ -287,15 +306,16 @@ impl TaskQueueManager {
         info!("Registered task queue: {}", stats.name);
         Ok(())
     }
-    
+
     /// Get a task queue by name
     pub async fn get_queue(&self, name: &str) -> Result<Arc<dyn TaskQueue>> {
         let queues = self.queues.read().await;
-        queues.get(name)
+        queues
+            .get(name)
             .cloned()
             .ok_or_else(|| Error::TaskQueueNotFound(name.to_string()))
     }
-    
+
     /// Schedule a task on a queue
     pub async fn schedule_task(
         &self,
@@ -306,10 +326,10 @@ impl TaskQueueManager {
         step_id: StepId,
     ) -> Result<TaskId> {
         let queue = self.get_queue(queue_name).await?;
-        
+
         let task_id = TaskId::new();
         let task_token = uuid::Uuid::new_v4().to_string();
-        
+
         let task = QueuedTask {
             task_id: task_id.clone(),
             task_type: task_type.to_string(),
@@ -327,17 +347,22 @@ impl TaskQueueManager {
             task_token,
             permission: crate::workflow::PermissionRequirement::default(),
         };
-        
+
         queue.enqueue(task).await?;
         debug!("Scheduled task {} on queue {}", task_id, queue_name);
-        
+
         Ok(task_id)
     }
-    
+
     /// Poll tasks for a worker
-    pub async fn poll_tasks(&self, worker_id: &str, queue_names: &[String], max_tasks: usize) -> Result<Vec<QueuedTask>> {
+    pub async fn poll_tasks(
+        &self,
+        worker_id: &str,
+        queue_names: &[String],
+        max_tasks: usize,
+    ) -> Result<Vec<QueuedTask>> {
         let mut all_tasks = Vec::new();
-        
+
         for queue_name in queue_names {
             if let Ok(queue) = self.get_queue(queue_name).await {
                 let tasks = queue.dequeue(worker_id, max_tasks).await?;
@@ -347,10 +372,10 @@ impl TaskQueueManager {
                 }
             }
         }
-        
+
         Ok(all_tasks)
     }
-    
+
     /// List all queue names
     pub async fn list_queues(&self) -> Result<Vec<String>> {
         let queues = self.queues.read().await;

@@ -3,7 +3,6 @@
 use crate::error::{Error, Result};
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 use uuid::Uuid;
 
 /// Unique identifier for a workflow definition
@@ -14,11 +13,11 @@ impl WorkflowDefinitionId {
     pub fn new() -> Self {
         Self(Uuid::new_v4().to_string())
     }
-    
+
     pub fn from_string(s: String) -> Self {
         Self(s)
     }
-    
+
     pub fn as_str(&self) -> &str {
         &self.0
     }
@@ -44,11 +43,11 @@ impl WorkflowExecutionId {
     pub fn new() -> Self {
         Self(Uuid::new_v4().to_string())
     }
-    
+
     pub fn from_string(s: String) -> Self {
         Self(s)
     }
-    
+
     pub fn as_str(&self) -> &str {
         &self.0
     }
@@ -74,11 +73,11 @@ impl StepId {
     pub fn new() -> Self {
         Self(Uuid::new_v4().to_string())
     }
-    
+
     pub fn from_string(s: String) -> Self {
         Self(s)
     }
-    
+
     pub fn as_str(&self) -> &str {
         &self.0
     }
@@ -104,11 +103,11 @@ impl TaskId {
     pub fn new() -> Self {
         Self(Uuid::new_v4().to_string())
     }
-    
+
     pub fn from_string(s: String) -> Self {
         Self(s)
     }
-    
+
     pub fn as_str(&self) -> &str {
         &self.0
     }
@@ -155,52 +154,61 @@ impl WorkflowDefinition {
             search_attributes: serde_json::Value::Object(serde_json::Map::new()),
         }
     }
-    
+
     pub fn with_description(mut self, description: String) -> Self {
         self.description = description;
         self
     }
-    
+
     pub fn add_step(mut self, step: StepDefinition) -> Self {
         self.steps.push(step);
         self.updated_at = Utc::now();
         self
     }
-    
+
     pub fn get_step(&self, step_id: &StepId) -> Option<&StepDefinition> {
         self.steps.iter().find(|s| &s.id == step_id)
     }
-    
+
     pub fn validate(&self) -> Result<()> {
         if self.steps.is_empty() {
-            return Err(Error::InvalidWorkflowDefinition("Workflow must have at least one step".to_string()));
+            return Err(Error::InvalidWorkflowDefinition(
+                "Workflow must have at least one step".to_string(),
+            ));
         }
-        
+
         // Check for duplicate step IDs
         let mut seen = std::collections::HashSet::new();
         for step in &self.steps {
             if !seen.insert(&step.id) {
-                return Err(Error::InvalidWorkflowDefinition(format!("Duplicate step ID: {}", step.id)));
+                return Err(Error::InvalidWorkflowDefinition(format!(
+                    "Duplicate step ID: {}",
+                    step.id
+                )));
             }
         }
-        
+
         // Validate step dependencies exist
         for step in &self.steps {
             for dep in &step.depends_on {
                 if !seen.contains(dep) {
-                    return Err(Error::InvalidWorkflowDefinition(format!("Step {} depends on non-existent step {}", step.id, dep)));
+                    return Err(Error::InvalidWorkflowDefinition(format!(
+                        "Step {} depends on non-existent step {}",
+                        step.id, dep
+                    )));
                 }
             }
         }
-        
+
         Ok(())
     }
 }
 
 /// Type of a workflow step
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum StepType {
+    #[default]
     Task,
     Decision,
     Parallel,
@@ -209,12 +217,6 @@ pub enum StepType {
     Signal,
     ChildWorkflow,
     ContinueAsNew,
-}
-
-impl Default for StepType {
-    fn default() -> Self {
-        StepType::Task
-    }
 }
 
 /// Definition of a single workflow step
@@ -257,24 +259,24 @@ impl StepDefinition {
             metadata: serde_json::Value::Object(serde_json::Map::new()),
         }
     }
-    
+
     pub fn task(id: StepId, name: String, task_queue: String, task_type: String) -> Self {
         let mut step = Self::new(id, name, StepType::Task);
         step.task_queue = task_queue;
         step.task_type = task_type;
         step
     }
-    
+
     pub fn depends_on(mut self, step_ids: Vec<StepId>) -> Self {
         self.depends_on = step_ids;
         self
     }
-    
+
     pub fn next_on_success(mut self, step_ids: Vec<StepId>) -> Self {
         self.next_steps = step_ids;
         self
     }
-    
+
     pub fn next_on_error(mut self, step_ids: Vec<StepId>) -> Self {
         self.error_steps = step_ids;
         self
@@ -324,27 +326,18 @@ impl Default for RetryPolicy {
 }
 
 /// Permission requirement for a step
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct PermissionRequirement {
     pub required_role: Option<String>,
     pub required_attributes: Vec<String>,
     pub required_level: Option<i32>,
 }
 
-impl Default for PermissionRequirement {
-    fn default() -> Self {
-        Self {
-            required_role: None,
-            required_attributes: Vec::new(),
-            required_level: None,
-        }
-    }
-}
-
 /// Status of a workflow execution
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum WorkflowExecutionStatus {
+    #[default]
     Unspecified,
     Running,
     Completed,
@@ -353,12 +346,6 @@ pub enum WorkflowExecutionStatus {
     Cancelled,
     Terminated,
     ContinuedAsNew,
-}
-
-impl Default for WorkflowExecutionStatus {
-    fn default() -> Self {
-        WorkflowExecutionStatus::Unspecified
-    }
 }
 
 /// Workflow execution instance
@@ -413,14 +400,14 @@ impl WorkflowExecution {
             current_step: None,
         }
     }
-    
+
     pub fn complete(&mut self, output: serde_json::Value) {
         self.status = WorkflowExecutionStatus::Completed;
         self.output = output;
         self.completed_at = Some(Utc::now());
         self.updated_at = Utc::now();
     }
-    
+
     pub fn fail(&mut self, error_message: String, error_type: String) {
         self.status = WorkflowExecutionStatus::Failed;
         self.error_message = Some(error_message);
@@ -428,14 +415,14 @@ impl WorkflowExecution {
         self.completed_at = Some(Utc::now());
         self.updated_at = Utc::now();
     }
-    
+
     pub fn cancel(&mut self, reason: String) {
         self.status = WorkflowExecutionStatus::Cancelled;
         self.error_message = Some(reason);
         self.completed_at = Some(Utc::now());
         self.updated_at = Utc::now();
     }
-    
+
     pub fn is_terminal(&self) -> bool {
         matches!(
             self.status,

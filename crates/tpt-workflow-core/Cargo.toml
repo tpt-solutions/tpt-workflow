@@ -5,14 +5,17 @@ edition = "2021"
 description = "Core workflow engine for tpt-workflow"
 publish = false
 
+[features]
+postgres = ["dep:sqlx"]
+
 [dependencies]
 tpt-workflow-proto = { path = "../tpt-workflow-proto" }
 tokio = { workspace = true }
 tokio-stream = { workspace = true }
 tokio-util = { workspace = true }
 tonic = { workspace = true }
-prost = { workspace = true, features = ["derive"] }
-prost-types = { workspace = true, features = [] }
+prost = { workspace = true, features = ["prost-derive"] }
+prost-types = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 serde_with = { workspace = true }
@@ -35,3 +38,5 @@ parking_lot = { workspace = true }
 dashmap = { workspace = true }
 arc-swap = { workspace = true }
 once_cell = { workspace = true }
+async-trait = { workspace = true }
+sqlx = { workspace = true, optional = true }
