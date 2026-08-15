@@ -28,6 +28,9 @@ pub enum Error {
     #[error("Invalid input: {0}")]
     InvalidInput(String),
 
+    #[error("Module version conflict: {0}")]
+    VersionConflict(String),
+
     #[error("Serialization error: {0}")]
     Serialization(#[from] serde_json::Error),
 

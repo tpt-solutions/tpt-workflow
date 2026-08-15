@@ -124,9 +124,9 @@ impl ActorStore {
     /// Add a role to an actor
     pub async fn add_role(&self, actor_id: &str, role: &str) -> Result<()> {
         let mut actors = self.actors.write().await;
-        let actor = actors
-            .get_mut(actor_id)
-            .ok_or_else(|| crate::error::Error::WorkerNotFound(format!("Actor not found: {}", actor_id)))?;
+        let actor = actors.get_mut(actor_id).ok_or_else(|| {
+            crate::error::Error::WorkerNotFound(format!("Actor not found: {}", actor_id))
+        })?;
         if !actor.roles.iter().any(|r| r == role) {
             actor.roles.push(role.to_string());
         }
@@ -136,9 +136,9 @@ impl ActorStore {
     /// Remove a role from an actor
     pub async fn remove_role(&self, actor_id: &str, role: &str) -> Result<()> {
         let mut actors = self.actors.write().await;
-        let actor = actors
-            .get_mut(actor_id)
-            .ok_or_else(|| crate::error::Error::WorkerNotFound(format!("Actor not found: {}", actor_id)))?;
+        let actor = actors.get_mut(actor_id).ok_or_else(|| {
+            crate::error::Error::WorkerNotFound(format!("Actor not found: {}", actor_id))
+        })?;
         actor.roles.retain(|r| r != role);
         Ok(())
     }
@@ -146,9 +146,9 @@ impl ActorStore {
     /// Add an attribute to an actor
     pub async fn add_attribute(&self, actor_id: &str, attribute: &str) -> Result<()> {
         let mut actors = self.actors.write().await;
-        let actor = actors
-            .get_mut(actor_id)
-            .ok_or_else(|| crate::error::Error::WorkerNotFound(format!("Actor not found: {}", actor_id)))?;
+        let actor = actors.get_mut(actor_id).ok_or_else(|| {
+            crate::error::Error::WorkerNotFound(format!("Actor not found: {}", actor_id))
+        })?;
         if !actor.attributes.iter().any(|a| a == attribute) {
             actor.attributes.push(attribute.to_string());
         }
@@ -158,9 +158,9 @@ impl ActorStore {
     /// Remove an attribute from an actor
     pub async fn remove_attribute(&self, actor_id: &str, attribute: &str) -> Result<()> {
         let mut actors = self.actors.write().await;
-        let actor = actors
-            .get_mut(actor_id)
-            .ok_or_else(|| crate::error::Error::WorkerNotFound(format!("Actor not found: {}", actor_id)))?;
+        let actor = actors.get_mut(actor_id).ok_or_else(|| {
+            crate::error::Error::WorkerNotFound(format!("Actor not found: {}", actor_id))
+        })?;
         actor.attributes.retain(|a| a != attribute);
         Ok(())
     }
@@ -168,9 +168,9 @@ impl ActorStore {
     /// Set an actor's clearance level
     pub async fn set_clearance_level(&self, actor_id: &str, level: i32) -> Result<()> {
         let mut actors = self.actors.write().await;
-        let actor = actors
-            .get_mut(actor_id)
-            .ok_or_else(|| crate::error::Error::WorkerNotFound(format!("Actor not found: {}", actor_id)))?;
+        let actor = actors.get_mut(actor_id).ok_or_else(|| {
+            crate::error::Error::WorkerNotFound(format!("Actor not found: {}", actor_id))
+        })?;
         actor.clearance_level = level;
         Ok(())
     }
@@ -183,6 +183,7 @@ impl Default for ActorStore {
 }
 
 /// Role-based authorization implementation with attribute and clearance-level checks
+#[allow(dead_code)]
 pub struct RoleBasedAuth {
     actor_store: Arc<ActorStore>,
 }

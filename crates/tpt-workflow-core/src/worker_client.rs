@@ -5,13 +5,13 @@
 //! - Poll for tasks on assigned task queues
 //! - Complete, heartbeat, and cancel tasks
 
-use tpt_workflow_proto::tpt::workflow::v1 as proto;
 use proto::workflow_engine_service_client::WorkflowEngineServiceClient;
 use proto::*;
+use tpt_workflow_proto::tpt::workflow::v1 as proto;
 
-use tonic::transport::Channel;
 use std::sync::Arc;
 use tokio::sync::RwLock;
+use tonic::transport::Channel;
 
 /// Worker-side gRPC client that wraps the tonic-generated client
 /// with convenience methods for workflow task operations.
@@ -22,7 +22,10 @@ pub struct WorkerGrpcClient {
 
 impl WorkerGrpcClient {
     /// Connect to the workflow engine at the given endpoint.
-    pub async fn connect(endpoint: &str, worker_id: String) -> Result<Self, tonic::transport::Error> {
+    pub async fn connect(
+        endpoint: &str,
+        worker_id: String,
+    ) -> Result<Self, tonic::transport::Error> {
         let channel = tonic::transport::Endpoint::new(endpoint.to_string())?
             .connect()
             .await?;
@@ -77,7 +80,10 @@ impl WorkerGrpcClient {
     }
 
     /// Deregister this worker from the engine.
-    pub async fn deregister(&self, graceful: bool) -> Result<WorkerDeregisterResponse, tonic::Status> {
+    pub async fn deregister(
+        &self,
+        graceful: bool,
+    ) -> Result<WorkerDeregisterResponse, tonic::Status> {
         let mut client = self.client.write().await;
         client
             .deregister_worker(tonic::Request::new(WorkerDeregisterRequest {

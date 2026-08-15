@@ -1,0 +1,54 @@
+syntax = "proto3";
+
+package tpt.workflow.v1;
+
+import "google/protobuf/timestamp.proto";
+import "google/protobuf/struct.proto";
+
+// Real-time change-data-capture (CDC) stream exposed by tpt-keystone-db's
+// Flux service. tpt-workflow subscribes to it for replay-on-crash and live
+// status updates. NOTE: align these message shapes with the upstream keystone
+// Flux service when wiring against a real deployment.
+
+// FluxChangeOp enumerates the kind of change captured by CDC.
+enum FluxChangeOp {
+  FLUX_CHANGE_OP_UNSPECIFIED = 0;
+  FLUX_CHANGE_OP_INSERT = 1;
+  FLUX_CHANGE_OP_UPDATE = 2;
+  FLUX_CHANGE_OP_DELETE = 3;
+}
+
+// FluxEntityKind identifies which workflow entity a change pertains to.
+enum FluxEntityKind {
+  FLUX_ENTITY_KIND_UNSPECIFIED = 0;
+  FLUX_ENTITY_KIND_EXECUTION = 1;
+  FLUX_ENTITY_KIND_EVENT = 2;
+  FLUX_ENTITY_KIND_DEFINITION = 3;
+}
+
+// FluxChangeEvent is a single CDC record emitted by the Flux stream.
+message FluxChangeEvent {
+  string change_id = 1;              // monotonic within a subscription
+  FluxChangeOp op = 2;
+  FluxEntityKind entity = 3;
+  string workflow_id = 4;
+  string workflow_definition_id = 5;
+  string run_id = 6;
+  int64 event_id = 7;                // populated for history-row changes
+  google.protobuf.Timestamp occurred_at = 8;
+  google.protobuf.Struct payload = 9;
+}
+
+// FluxChangeSubscription selects which changes to receive.
+message FluxChangeSubscription {
+  repeated string workflow_ids = 1;
+  repeated string workflow_definition_ids = 2;
+  repeated FluxEntityKind entities = 3;
+  string resume_after = 4;           // resume token (change_id) to continue a prior subscription
+}
+
+// Flux is the real-time change-data-capture streaming service.
+service Flux {
+  // Subscribe to a server-stream of change events.
+  rpc Subscribe(FluxChangeSubscription) returns (stream FluxChangeEvent);
+}

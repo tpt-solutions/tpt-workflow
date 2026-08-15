@@ -4,12 +4,13 @@ members = [
     "crates/tpt-workflow-core",
     "crates/tpt-workflow-proto",
     "crates/tpt-workflow-sandbox",
+    "crates/tpt-workflow-builder",
 ]
 exclude = []
 
 [workspace.dependencies]
 tokio = { version = "1.38", features = ["full"] }
-tokio-stream = "0.1"
+tokio-stream = { version = "0.1", features = ["net"] }
 tokio-util = { version = "0.7", features = ["full"] }
 tonic = { version = "0.11", features = ["tls", "tls-roots", "transport"] }
 prost = { version = "0.12", features = ["prost-derive"] }
@@ -43,6 +44,7 @@ sqlx = { version = "0.7", features = ["runtime-tokio-rustls", "postgres", "uuid"
 async-trait = "0.1"
 wasmtime = { version = "25", features = ["parallel-compilation", "cranelift"] }
 sha2 = "0.10"
+semver = "1.0"
 
 [profile.dev]
 opt-level = 0

@@ -21,7 +21,7 @@ reordered once earlier ones reveal constraints.
 - [x] Wasmtime/Wasmer runtime embedding for user-defined workflow logic + plugins — `engine.rs`, `module.rs`
 - [x] Strict memory isolation per workflow task execution — `limits.rs`
 - [x] Resource limits (fuel/memory caps) so one bad workflow can't starve the engine — `limits.rs`
-- [ ] WASM module loading/versioning for third-party plugin workflows — basic loading in `module.rs`, versioning not yet designed
+- [x] WASM module loading/versioning for third-party plugin workflows — versioning designed in `module_version.rs`: semver `ModuleVersion`, `VersionSelector` (exact/`latest`/constraint), `resolve_version`, content-addressed `content_hash` (idempotent reload + tamper detection), `ApiFingerprint` + `CompatibilityPolicy` (same-major / identical-surface / declared-group). `ModuleLoader` enforces version immutability and `BTreeMap`-backed latest resolution; `ModuleRegistry::get_selector` resolves by selector.
 
 ## Phase 3 — gRPC & Protobuf Engine↔Worker Protocol
 - [x] Define .proto schemas: task dispatch, task result, heartbeat, cancellation — `proto/tpt/workflow/v1/*.proto`
@@ -29,15 +29,15 @@ reordered once earlier ones reveal constraints.
 - [x] Worker-side gRPC client stub/SDK — `worker_client.rs` with tonic client wrapper
 
 ## Phase 4 — tpt-keystone-db Integration (durable state + history)
-- [ ] Postgres wire-protocol client: durable append of workflow event history
-- [ ] Postgres-backed historical query API (list/filter past workflow runs)
-- [ ] Flux gRPC streaming client: real-time CDC subscription for replay-on-crash / live status
-- [ ] Schema/migration for workflow event table(s)
+- [x] Postgres wire-protocol client: durable append of workflow event history — `PostgresPersistence` + `PostgresHistoryStore` (in `persistence.rs`/`history.rs`, feature `postgres`) append to the `workflow_events` table inside a transaction with server-assigned sequential `event_id`s.
+- [x] Postgres-backed historical query API (list/filter past workflow runs) — `get_*`/`list_*` implementations incl. filtered/paginated `list_workflow_executions` (status `ANY(...)`, time ranges) and `list_workflow_definitions`.
+- [x] Flux gRPC streaming client: real-time CDC subscription for replay-on-crash / live status — `keystone_flux.rs` (feature `flux`): `FluxCdcClient` trait + `GrpcFluxCdcClient` over a generated `Flux` tonic service (local `flux.proto`, package `tpt.workflow.v1`). NOTE: `flux.proto` message shapes must be aligned with the upstream keystone Flux service (the `tpt-keystone-db` repo is not present locally, so the contract is a scaffold).
+- [x] Schema/migration for workflow event table(s) — `migrations/0001_init.sql` (`workflow_definitions`, `workflow_executions`, `workflow_events`, `task_states`); applied via `sqlx::migrate!` from `PostgresPersistence::connect`/`migrate` and `PostgresHistoryStore::connect`/`migrate`.
 
 ## Phase 5 — tpt-synapse Integration (task dispatch + completion)
-- [ ] Define tpt-workflow's task-queue naming convention (workflow_id/task-queue scheme)
-- [ ] Integrate against synapse-native-client queue+ack primitive for task dispatch
-- [ ] Async completion listening (consumer group per task queue)
+- [x] Define tpt-workflow's task-queue naming convention (workflow_id/task-queue scheme) — `task_queue_naming.rs`: canonical `<scope>/<logical-queue>` where scope is `exec:<execution-id>` or `def:<definition-id>:<version>`; `TaskQueueName` parse/format/validate, `QueueScope`, and `TaskQueueManager::build_queue_name`/`schedule_task_scoped` wired in.
+- [x] Integrate against synapse-native-client queue+ack primitive for task dispatch — `synapse.rs`: `SynapseTaskQueue` implements the engine `TaskQueue` over the vendored `MatchingService` gRPC client (`AddTask` / `PollTask` / `RespondTaskCompleted` / `RespondTaskFailed`)
+- [x] Async completion listening (consumer group per task queue) — `synapse.rs`: `SynapseTaskCompletionListener` streams `StreamTasks` and acks via a `TaskHandler`; `ConsumerGroup` + `ConsumerGroupRegistry` give a named consumer group per task queue
 - [x] **[cross-repo, tpt-synapse]** gRPC task-queue facade over queue+ack primitive — already exists: `tpt-synapse/tpt-workflow/` companion crate, `MatchingService` in `service.rs`
 - [x] **[cross-repo, tpt-synapse]** Visibility-timeout + redelivery for crashed/slow workers — `TaskQueueManager` in `dispatch.rs`
 - [x] **[cross-repo, tpt-synapse]** Idempotent ack / dedupe by task token — `AckResult::Duplicate` in `dispatch.rs`
@@ -54,8 +54,8 @@ reordered once earlier ones reveal constraints.
 
 ## Phase 7 — Visual Workflow Builder — DEFERRED (build via appfront's node-graph escape hatch, not the main canvas, by design)
 - [x] Confirm appfront-canvas exposes node-graph/plugin extension points — it does not, and by design: pan/zoom/drag/node-graph primitives exist and work in `tpt-appfront/examples/node-graph/src/main.rs` (`world_to_screen`/`screen_to_world`, pan-drag, per-node drag, port-to-port wiring), but deliberately built outside `tpt-appfront-canvas`'s `UITree`/taffy pipeline. This is a permanent architectural boundary in appfront, not a temporary gap: `UITree`/`NodeMeta` is one shared AST consumed portably by `-dom`/`-html`/`-ai-schema`/`-tui`/`-canvas`, and world-space/absolute positioning would only ever be honored by `-canvas` — a backend-specific leak into the shared core that breaks that portability. There is no planned `Canvas`/`Absolute` layout mode upstream, and none should be expected.
-- [ ] Vendor/fork the node-graph example's transform/drag/wiring logic (`world_to_screen`/`screen_to_world`, pan-drag, per-node drag, port-to-port wire creation) directly into a new tpt-workflow builder crate — own it there, same as appfront's own example does, no dependency on appfront core changing
-- [ ] Build a workflow-specific node-graph domain model on top of that (step/task nodes with typed ports, edges as real step-to-step connections) — replacing the example's toy `Node{id,label,pos}`/`Wire{from,to}` structs
-- [ ] Drag-and-drop step/task node palette
-- [ ] Visual test/run mode (step through a workflow visually)
-- [ ] Save/load: visual graph <-> workflow-as-code representation
+- [x] Vendor/fork the node-graph example's transform/drag/wiring logic (`world_to_screen`/`screen_to_world`, pan-drag, per-node drag, port-to-port wire creation) into a new `tpt-workflow-builder` crate — `crates/tpt-workflow-builder/src/viewer.rs` owns the canvas state + geometry, no dependency on appfront core (matches appfront's own example boundary)
+- [x] Build a workflow-specific node-graph domain model on top of that (`graph.rs`: `GraphNode{step,pos}` / `GraphEdge{from_step,from_port,to_step}` with typed `PortKind::{Success,Error}`), replacing the example's toy `Node{id,label,pos}`/`Wire{from,to}` structs
+- [x] Drag-and-drop step/task node palette (`app.rs` left panel; drag a `StepType` onto the canvas, or click to drop at view center)
+- [x] Visual test/run mode (step through a workflow visually) — `run.rs` walks the graph by the same dependency rule as `core::execution::get_next_step`; `Step`/`Run all`/`Reset` controls highlight nodes Done
+- [x] Save/load: visual graph <-> workflow-as-code representation — `convert.rs` `to_workflow_definition`/`from_workflow_definition` (with auto layout + cycle detection) plus `save_graph`/`load_graph` (full graph incl. positions) and Export/Import-code buttons

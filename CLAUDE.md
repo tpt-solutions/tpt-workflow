@@ -17,7 +17,7 @@
 - **tpt-keystone-db** - Durable state store (PostgreSQL wire protocol) for workflow event history
 - **tpt-synapse** - Task dispatch and async completion via message queues
 - **tpt-identity** - Step-level permissions (role/attribute based)
-- **tpt-appfront** - Visual workflow builder (blocked on appfront upgrade)
+- **tpt-workflow-builder** - egui node-graph visual workflow builder (Phase 7; vendors appfront's node-graph escape hatch, no appfront dependency)
 
 ## Key Design Principles
 
@@ -134,6 +134,18 @@ tpt-workflow/
         │   ├── workflow.rs
         │   └── error.rs
         └── Cargo.toml
+    └── tpt-workflow-builder/ # egui node-graph visual builder (Phase 7)
+        ├── src/
+        │   ├── lib.rs
+        │   ├── app.rs          # eframe app: canvas, panels, run mode, save/load
+        │   ├── convert.rs      # graph <-> WorkflowDefinition (workflow-as-code)
+        │   ├── error.rs
+        │   ├── graph.rs        # GraphModel / GraphNode / GraphEdge / PortKind
+        │   ├── palette.rs      # draggable step-type palette
+        │   ├── run.rs          # visual step/run traversal
+        │   ├── viewer.rs       # vendored canvas transform/drag/wiring + geometry
+        │   └── main.rs         # native binary entry
+        └── Cargo.toml
 ```
 
 ## Phase Progress (from TODO.md)
@@ -144,8 +156,8 @@ tpt-workflow/
 - [ ] Phase 3: gRPC & Protobuf Protocol
 - [ ] Phase 4: tpt-keystone-db Integration
 - [ ] Phase 5: tpt-synapse Integration
-- [ ] Phase 6: Step-Level Permissions
-- [ ] Phase 7: Visual Workflow Builder (blocked)
+- [x] Phase 6: Step-Level Permissions
+- [x] Phase 7: Visual Workflow Builder (egui node-graph builder crate)
 
 ## Commands
 

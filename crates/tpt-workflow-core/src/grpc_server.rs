@@ -7,12 +7,13 @@ use std::sync::Arc;
 use tokio::sync::RwLock;
 use tonic::{Request, Response, Status};
 
-use tpt_workflow_proto::tpt::workflow::v1 as proto;
-use proto::workflow_engine_service_server::{WorkflowEngineServiceServer, WorkflowEngineService};
+use proto::workflow_engine_service_server::{WorkflowEngineService, WorkflowEngineServiceServer};
 use proto::*;
+use tpt_workflow_proto::tpt::workflow::v1 as proto;
 
 use crate::workflow as core;
 
+#[allow(dead_code)]
 pub struct WorkflowEngineServiceImpl {
     persistence: Arc<dyn PersistenceLayer>,
     task_queue_manager: Arc<TaskQueueManager>,
@@ -75,37 +76,37 @@ impl WorkflowEngineService for WorkflowEngineServiceImpl {
             if let Some(proto_retry) = proto_step.retry_policy {
                 step.retry_policy.max_attempts = proto_retry.maximum_attempts as u32;
                 if let Some(ref interval) = proto_retry.initial_interval {
-                    step.retry_policy.initial_interval =
-                        chrono::Duration::from_std(std::time::Duration::from_secs(
-                            interval.seconds as u64,
-                        ))
-                        .unwrap_or_default();
+                    step.retry_policy.initial_interval = chrono::Duration::from_std(
+                        std::time::Duration::from_secs(interval.seconds as u64),
+                    )
+                    .unwrap_or_default();
                 }
                 step.retry_policy.backoff_coefficient = proto_retry.backoff_coefficient;
                 if let Some(ref max_interval) = proto_retry.maximum_interval {
-                    step.retry_policy.maximum_interval =
-                        chrono::Duration::from_std(std::time::Duration::from_secs(
-                            max_interval.seconds as u64,
-                        ))
-                        .unwrap_or_default();
+                    step.retry_policy.maximum_interval = chrono::Duration::from_std(
+                        std::time::Duration::from_secs(max_interval.seconds as u64),
+                    )
+                    .unwrap_or_default();
                 }
                 step.retry_policy.non_retryable_errors = proto_retry.non_retryable_error_types;
             }
 
             if let Some(proto_timeout) = proto_step.timeout_policy {
                 if let Some(ref start_to_close) = proto_timeout.start_to_close_timeout {
-                    step.timeout_policy.start_to_close =
-                        Some(chrono::Duration::from_std(std::time::Duration::from_secs(
+                    step.timeout_policy.start_to_close = Some(
+                        chrono::Duration::from_std(std::time::Duration::from_secs(
                             start_to_close.seconds as u64,
                         ))
-                        .unwrap_or_default());
+                        .unwrap_or_default(),
+                    );
                 }
                 if let Some(ref schedule_to_start) = proto_timeout.schedule_to_start_timeout {
-                    step.timeout_policy.schedule_to_start =
-                        Some(chrono::Duration::from_std(std::time::Duration::from_secs(
+                    step.timeout_policy.schedule_to_start = Some(
+                        chrono::Duration::from_std(std::time::Duration::from_secs(
                             schedule_to_start.seconds as u64,
                         ))
-                        .unwrap_or_default());
+                        .unwrap_or_default(),
+                    );
                 }
             }
 
@@ -176,14 +177,18 @@ impl WorkflowEngineService for WorkflowEngineServiceImpl {
         &self,
         _request: Request<UpdateWorkflowDefinitionRequest>,
     ) -> std::result::Result<Response<UpdateWorkflowDefinitionResponse>, Status> {
-        Err(Status::unimplemented("update_workflow_definition not yet implemented"))
+        Err(Status::unimplemented(
+            "update_workflow_definition not yet implemented",
+        ))
     }
 
     async fn delete_workflow_definition(
         &self,
         _request: Request<DeleteWorkflowDefinitionRequest>,
     ) -> std::result::Result<Response<DeleteWorkflowDefinitionResponse>, Status> {
-        Err(Status::unimplemented("delete_workflow_definition not yet implemented"))
+        Err(Status::unimplemented(
+            "delete_workflow_definition not yet implemented",
+        ))
     }
 
     async fn start_workflow_execution(
@@ -262,21 +267,27 @@ impl WorkflowEngineService for WorkflowEngineServiceImpl {
         &self,
         _request: Request<CancelWorkflowExecutionRequest>,
     ) -> std::result::Result<Response<CancelWorkflowExecutionResponse>, Status> {
-        Err(Status::unimplemented("cancel_workflow_execution not yet implemented"))
+        Err(Status::unimplemented(
+            "cancel_workflow_execution not yet implemented",
+        ))
     }
 
     async fn terminate_workflow_execution(
         &self,
         _request: Request<TerminateWorkflowExecutionRequest>,
     ) -> std::result::Result<Response<TerminateWorkflowExecutionResponse>, Status> {
-        Err(Status::unimplemented("terminate_workflow_execution not yet implemented"))
+        Err(Status::unimplemented(
+            "terminate_workflow_execution not yet implemented",
+        ))
     }
 
     async fn signal_workflow_execution(
         &self,
         _request: Request<SignalWorkflowExecutionRequest>,
     ) -> std::result::Result<Response<SignalWorkflowExecutionResponse>, Status> {
-        Err(Status::unimplemented("signal_workflow_execution not yet implemented"))
+        Err(Status::unimplemented(
+            "signal_workflow_execution not yet implemented",
+        ))
     }
 
     async fn get_workflow_execution_history(
@@ -294,7 +305,9 @@ impl WorkflowEngineService for WorkflowEngineServiceImpl {
         &self,
         _request: Request<CreateTaskQueueRequest>,
     ) -> std::result::Result<Response<CreateTaskQueueResponse>, Status> {
-        Err(Status::unimplemented("create_task_queue not yet implemented"))
+        Err(Status::unimplemented(
+            "create_task_queue not yet implemented",
+        ))
     }
 
     async fn get_task_queue(
@@ -318,14 +331,18 @@ impl WorkflowEngineService for WorkflowEngineServiceImpl {
         &self,
         _request: Request<DeleteTaskQueueRequest>,
     ) -> std::result::Result<Response<DeleteTaskQueueResponse>, Status> {
-        Err(Status::unimplemented("delete_task_queue not yet implemented"))
+        Err(Status::unimplemented(
+            "delete_task_queue not yet implemented",
+        ))
     }
 
     async fn get_task_queue_stats(
         &self,
         _request: Request<GetTaskQueueStatsRequest>,
     ) -> std::result::Result<Response<GetTaskQueueStatsResponse>, Status> {
-        Err(Status::unimplemented("get_task_queue_stats not yet implemented"))
+        Err(Status::unimplemented(
+            "get_task_queue_stats not yet implemented",
+        ))
     }
 
     async fn register_worker(
@@ -339,14 +356,18 @@ impl WorkflowEngineService for WorkflowEngineServiceImpl {
         &self,
         _request: Request<WorkerHeartbeatRequest>,
     ) -> std::result::Result<Response<WorkerHeartbeatResponse>, Status> {
-        Err(Status::unimplemented("worker_heartbeat not yet implemented"))
+        Err(Status::unimplemented(
+            "worker_heartbeat not yet implemented",
+        ))
     }
 
     async fn deregister_worker(
         &self,
         _request: Request<WorkerDeregisterRequest>,
     ) -> std::result::Result<Response<WorkerDeregisterResponse>, Status> {
-        Err(Status::unimplemented("deregister_worker not yet implemented"))
+        Err(Status::unimplemented(
+            "deregister_worker not yet implemented",
+        ))
     }
 
     async fn get_worker(
@@ -410,7 +431,7 @@ fn workflow_def_to_proto(def: &core::WorkflowDefinition) -> WorkflowDefinition {
         name: def.name.clone(),
         version: def.version.clone(),
         description: def.description.clone(),
-        steps: def.steps.iter().map(|s| step_def_to_proto(s)).collect(),
+        steps: def.steps.iter().map(step_def_to_proto).collect(),
         created_at: Some(prost_types::Timestamp {
             seconds: def.created_at.timestamp(),
             nanos: def.created_at.timestamp_subsec_nanos() as i32,
@@ -502,4 +523,3 @@ fn workflow_exec_to_proto(exec: &core::WorkflowExecution) -> WorkflowExecution {
         events: Vec::new(),
     }
 }
-

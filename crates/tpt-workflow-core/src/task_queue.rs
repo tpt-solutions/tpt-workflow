@@ -1,6 +1,7 @@
 //! Task queue management
 
 use crate::error::{Error, Result};
+use crate::task_queue_naming::{QueueScope, TaskQueueName};
 use crate::workflow::{StepId, TaskId, WorkflowExecutionId};
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
@@ -380,6 +381,43 @@ impl TaskQueueManager {
     pub async fn list_queues(&self) -> Result<Vec<String>> {
         let queues = self.queues.read().await;
         Ok(queues.keys().cloned().collect())
+    }
+
+    /// Connect to a synapse-backed `MatchingService` and register it as a task
+    /// queue under its canonical `task_queue` name. Returns the live queue so
+    /// callers can poll/complete through it directly.
+    pub async fn register_synapse_queue(
+        &self,
+        config: crate::synapse::SynapseTaskQueueConfig,
+    ) -> Result<Arc<crate::synapse::SynapseTaskQueue>> {
+        let queue = crate::synapse::SynapseTaskQueue::connect(config)?;
+        let arc = Arc::new(queue);
+        self.register_queue(arc.clone()).await?;
+        Ok(arc)
+    }
+
+    /// Build the canonical queue name for a `(scope, logical-queue)` pair under
+    /// the tpt-workflow task-queue naming convention (see
+    /// [`crate::task_queue_naming`]).
+    pub fn build_queue_name(&self, scope: &QueueScope, logical_queue: &str) -> Result<String> {
+        Ok(TaskQueueName::with_scope(scope.clone(), logical_queue)?.canonical())
+    }
+
+    /// Schedule a task on the canonical queue derived from a workflow scope and
+    /// a logical queue name. Equivalent to [`TaskQueueManager::schedule_task`]
+    /// once the canonical name has been computed.
+    pub async fn schedule_task_scoped(
+        &self,
+        scope: &QueueScope,
+        logical_queue: &str,
+        task_type: &str,
+        input: Value,
+        workflow_id: WorkflowExecutionId,
+        step_id: StepId,
+    ) -> Result<TaskId> {
+        let queue_name = self.build_queue_name(scope, logical_queue)?;
+        self.schedule_task(&queue_name, task_type, input, workflow_id, step_id)
+            .await
     }
 }
 

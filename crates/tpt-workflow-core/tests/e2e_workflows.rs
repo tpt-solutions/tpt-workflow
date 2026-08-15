@@ -388,7 +388,10 @@ async fn test_composite_auth_denies_when_any_fails() {
         .add_checker(Box::new(auth1))
         .add_checker(Box::new(auth2));
 
-    let result = composite.check_permission(&step_no_role, &actor).await.unwrap();
+    let result = composite
+        .check_permission(&step_no_role, &actor)
+        .await
+        .unwrap();
     assert_eq!(result, AuthDecision::Allow);
 
     let mut step_denied = StepDefinition::task(
@@ -399,7 +402,10 @@ async fn test_composite_auth_denies_when_any_fails() {
     );
     step_denied.permission.required_role = Some("superadmin".to_string());
 
-    let result = composite.check_permission(&step_denied, &actor).await.unwrap();
+    let result = composite
+        .check_permission(&step_denied, &actor)
+        .await
+        .unwrap();
     match result {
         AuthDecision::Deny(_) => {}
         AuthDecision::Allow => panic!("Expected denial"),
@@ -558,11 +564,17 @@ async fn test_role_based_auth_with_store_lookups() {
     admin_step.permission.required_level = Some(3);
 
     let admin_actor = store.get_actor("admin-user").await.unwrap();
-    let result = auth.check_permission(&admin_step, &admin_actor).await.unwrap();
+    let result = auth
+        .check_permission(&admin_step, &admin_actor)
+        .await
+        .unwrap();
     assert_eq!(result, AuthDecision::Allow);
 
     let regular_actor = store.get_actor("regular-user").await.unwrap();
-    let result = auth.check_permission(&admin_step, &regular_actor).await.unwrap();
+    let result = auth
+        .check_permission(&admin_step, &regular_actor)
+        .await
+        .unwrap();
     match result {
         AuthDecision::Deny(reason) => assert!(
             reason.contains("Missing required role") || reason.contains("Insufficient clearance")
@@ -815,7 +827,10 @@ async fn test_crash_recovery_resume_from_durable_state() {
             .add_step(step3),
     );
 
-    persistence.save_workflow_definition(&definition).await.unwrap();
+    persistence
+        .save_workflow_definition(&definition)
+        .await
+        .unwrap();
 
     let workflow_id = tpt_workflow_core::workflow::WorkflowExecutionId::new();
     let input = serde_json::json!({ "request_id": "crash-test-123" });
@@ -848,7 +863,10 @@ async fn test_crash_recovery_resume_from_durable_state() {
     let current_step = execution.current_step.clone().unwrap();
     assert_eq!(current_step, step1_id);
 
-    persistence.save_workflow_execution(&execution).await.unwrap();
+    persistence
+        .save_workflow_execution(&execution)
+        .await
+        .unwrap();
 
     let pending_tasks = task_queue_manager
         .poll_tasks("dev-worker", &["default".to_string()], 10)
@@ -866,17 +884,17 @@ async fn test_crash_recovery_resume_from_durable_state() {
         .await
         .unwrap();
 
-    context.set_step_output(
-        step1_id.clone(),
-        serde_json::json!({ "data": [1, 2, 3] }),
-    );
+    context.set_step_output(step1_id.clone(), serde_json::json!({ "data": [1, 2, 3] }));
 
     let result = executor
         .execute_workflow(&mut execution, &mut context)
         .await;
     assert!(result.is_ok());
 
-    persistence.save_workflow_execution(&execution).await.unwrap();
+    persistence
+        .save_workflow_execution(&execution)
+        .await
+        .unwrap();
 
     let pending_tasks = task_queue_manager
         .poll_tasks("dev-worker", &["default".to_string()], 10)
@@ -893,17 +911,17 @@ async fn test_crash_recovery_resume_from_durable_state() {
         .await
         .unwrap();
 
-    context.set_step_output(
-        step2_id.clone(),
-        serde_json::json!({ "processed": true }),
-    );
+    context.set_step_output(step2_id.clone(), serde_json::json!({ "processed": true }));
 
     let result = executor
         .execute_workflow(&mut execution, &mut context)
         .await;
     assert!(result.is_ok());
 
-    persistence.save_workflow_execution(&execution).await.unwrap();
+    persistence
+        .save_workflow_execution(&execution)
+        .await
+        .unwrap();
 
     let pending_tasks = task_queue_manager
         .poll_tasks("dev-worker", &["default".to_string()], 10)
@@ -920,10 +938,7 @@ async fn test_crash_recovery_resume_from_durable_state() {
         .await
         .unwrap();
 
-    context.set_step_output(
-        step3_id.clone(),
-        serde_json::json!({ "written": true }),
-    );
+    context.set_step_output(step3_id.clone(), serde_json::json!({ "written": true }));
 
     let result = executor
         .execute_workflow(&mut execution, &mut context)
@@ -935,7 +950,10 @@ async fn test_crash_recovery_resume_from_durable_state() {
         tpt_workflow_core::WorkflowExecutionStatus::Completed
     );
 
-    persistence.save_workflow_execution(&execution).await.unwrap();
+    persistence
+        .save_workflow_execution(&execution)
+        .await
+        .unwrap();
 
     let saved = persistence
         .get_workflow_execution(&workflow_id)
