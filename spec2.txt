@@ -1,0 +1,99 @@
+Design Update Spec: tpt-workflow (Guarded FSM & Durable Execution)
+This document is formatted to be dropped directly into your tpt-workflow/spec.txt or as a standalone design-doc.md update. It implements the P1 priorities from the audit, replacing the need for a separate tpt-loom repository by extending the existing workflow engine with formal transition semantics.
+Design Update: Guarded State-Transition Core and Durable Execution
+Repository: tpt-workflow
+Priority: P1 — Reuse the existing workflow engine
+Status: Draft / Pending Implementation
+1. Context & Objective
+tpt-workflow currently provides durable execution and BPM (Business Process Management) capabilities. However, agentic workflows often drift, loop, or skip critical steps when driven by probabilistic AI.
+This update extends tpt-workflow to include a deterministic, formally guarded state-transition core. It ensures that AI agents operate strictly within a predefined Finite State Machine (FSM) or Petri net. The AI is not allowed to issue unrestricted commands; it may only propose valid transitions between states. This update replaces the conceptual need for a separate tpt-loom repository by unifying durable execution with strict formal transition semantics.
+2. Workspace & Crate Layout
+Extend the existing workspace to strictly separate the formal transition semantics from the durable scheduling and persistence layers:
+Crate
+Responsibility
+tpt-workflow-core
+State machine definitions, explicit states, transitions, guards, invariants, and optional Petri-net primitives (places, tokens).
+tpt-workflow-engine
+The deterministic execution engine. Handles transition ordering, concurrency resolution, and the commit() lifecycle.
+tpt-workflow-durable
+Persistence, recovery, durable scheduler, and replay. (Kept separate from formal semantics to ensure retries don't break invariants).
+tpt-workflow-sim
+Simulation mode that explores transitions and performs reachability/deadlock analysis without performing external side effects.
+3. Core Interface Additions
+The following Rust API shapes define the boundary. The core invariant is that a transition can only be committed if it is enabled, invariant-compliant, and authorized.
+
+/// The formal contract for a guarded state machine.
+pub trait GuardedStateMachine {
+    type State;
+    type Transition;
+    type Context;
+
+    /// Checks if the transition is structurally valid from the current state.
+    fn is_enabled(&self, state: &Self::State, transition: &Self::Transition) -> bool;
+
+    /// Checks domain-specific invariants (e.g., resource limits, physical constraints).
+    fn check_invariants(
+        &self, 
+        state: &Self::State, 
+        transition: &Self::Transition, 
+        context: &Self::Context
+    ) -> Result<(), InvariantViolation>;
+
+    /// The core commit function. 
+    /// INVARIANT: commit(s,t,c) => enabled(s,t) ∧ invariants(s,t,c) ∧ authorised(t,c)
+    fn commit(
+        &mut self,
+        state: Self::State,
+        transition: Self::Transition,
+        context: Self::Context,
+    ) -> Result<Self::State, TransitionError>;
+}
+
+/// Hook to integrate with the runtime policy engine (tpt-norma).
+pub trait PolicyHook {
+    /// Evaluates if the transition is authorized against the current dynamic state.
+    fn authorise_transition(
+        &self, 
+        transition: &Transition, 
+        context: &Context
+    ) -> Decision; // Allow, Deny, Indeterminate
+}
+
+/// Hook to integrate with the execution boundary (tpt-writ).
+pub trait ExecutionHook {
+    /// Gates the actual side effects of the transition using a single-use permit.
+    fn gate_side_effects(
+        &self, 
+        transition: &Transition, 
+        permit: &ExecutionPermit
+    ) -> Result<(), ExecutionError>;
+}
+
+4. Strict Invariants & Safety Guarantees
+The implementation must enforce the following invariants to prevent agentic drift and ensure deterministic behavior:
+Commit-Time Enforcement: Guard and invariant checks MUST be applied at the exact moment of commit(), not just when the AI first proposes the transition. State may have changed between proposal and execution.
+No Skipped States: An agent cannot transition directly from State A to State C if the model requires an intervening State B. The is_enabled() check strictly enforces the topology.
+Deterministic Concurrency: Where multiple transitions are simultaneously enabled and concurrency would otherwise be ambiguous, the engine MUST resolve them using a deterministic ordering (e.g., lexicographical sorting of transition IDs or strict priority queues).
+Safe Retries (Idempotency Boundary): A retry of a workflow step must not accidentally repeat a non-idempotent side effect (e.g., a payment or physical actuation). The tpt-workflow-durable layer must track exactly-once execution semantics for protected actions via tpt-writ.
+Restart Safety: Restarting the workflow after a crash or process restart must resume exactly at the last durably committed state. It must never bypass mandatory intermediate states or re-execute already committed transitions.
+5. Acceptance Tests (Definition of Done)
+The following tests must pass in CI to prove the workflow engine is formally sound and durable:
+Positive: A valid sequence of transitions (e.g., PreFlight -> Cleared -> Takeoff) commits successfully and produces the correct final state.
+Negative (Skipped State): An agent attempts to transition directly from PreFlight to Takeoff. The is_enabled() check rejects the transition.
+Negative (Invariant Violation): A transition is structurally enabled, but violates a resource invariant (e.g., battery too low). The check_invariants() check rejects the transition.
+Negative (Restart Bypass): The workflow crashes during Cleared. Upon restart, the engine resumes at Cleared. It cannot be tricked into jumping to Takeoff without re-evaluating the Cleared guards.
+Negative (Non-Idempotent Retry): A transition triggers a protected side effect (via tpt-writ). If the network drops the response, retrying the workflow step does not trigger the side effect a second time.
+Concurrency Test: Two concurrent transitions attempt to consume the same limited resource (Petri-net token). Only one succeeds; the other is deterministically queued or denied.
+Simulation Test: The tpt-workflow-sim crate can explore 10,000 random transition paths and correctly identify a deadlock or unreachable state without executing any real side effects.
+6. Simulation and Analysis Mode
+A critical addition is tpt-workflow-sim. Before deploying a new workflow topology to production, the simulation mode must be able to:
+Explore all reachable states in a bounded model.
+Detect deadlocks (states where no transitions are enabled).
+Verify that mandatory audit or safety states are never bypassed.
+Run without any network, database, or hardware side effects.
+7. Dependencies & Contracts
+Requires: tpt-uir (for canonical action envelopes and state versioning).
+Requires: tpt-norma (via PolicyHook, to authorize transitions against dynamic state).
+Requires: tpt-writ (via ExecutionHook, to gate the actual side effects of the transition).
+Provides to: tpt-concord (durable transition history, providing a complete audit trail of how the system moved from state to state).
+Provides to: Application Layer (e.g., tpt-healthcare-nz, tpt-flight-control) a mathematically bounded way to orchestrate complex, multi-step agentic workflows.
